@@ -86,5 +86,24 @@ jobs:
           make_latest: true
           files: |
             ${{ steps.firmware.outputs.FILE }}
+
+      - name: Read changelog
+        id: changelog
+        run: |
+          CHANGELOG=$(cat CHANGELOG.md)
+
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: Dev Build ${{ steps.tag.outputs.TAG }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          files: ${{ steps.firmware.outputs.FILE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

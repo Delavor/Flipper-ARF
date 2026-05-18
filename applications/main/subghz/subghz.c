@@ -206,6 +206,12 @@ SubGhz* subghz_alloc(bool alloc_for_tx_only) {
         SubGhzViewIdKeeloqDecrypt,
         subghz_view_keeloq_decrypt_get_view(subghz->subghz_keeloq_decrypt));
 
+    subghz->car_emulate_view = subghz_car_emulate_view_alloc();
+    view_dispatcher_add_view(
+        subghz->view_dispatcher,
+        SubGhzViewIdCarEmulate,
+        subghz_car_emulate_view_get_view(subghz->car_emulate_view));
+
     //init threshold rssi
     subghz->threshold_rssi = subghz_threshold_rssi_alloc();
 
@@ -320,6 +326,10 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
     // KeeLoq Decrypt
     view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdKeeloqDecrypt);
     subghz_view_keeloq_decrypt_free(subghz->subghz_keeloq_decrypt);
+
+    // Custom car-emulate view
+    view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdCarEmulate);
+    subghz_car_emulate_view_free(subghz->car_emulate_view);
 
     // Read RAW
     view_dispatcher_remove_view(subghz->view_dispatcher, SubGhzViewIdReadRAW);

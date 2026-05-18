@@ -30,6 +30,7 @@ typedef struct {
     float preset_hopping_threshold;
     bool leds_and_amp;
     uint8_t tx_power;
+    bool custom_car_emulate;
 } SubGhzLastSettings;
 
 SubGhzLastSettings* subghz_last_settings_alloc(void);

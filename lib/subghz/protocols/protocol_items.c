@@ -84,6 +84,7 @@ const SubGhzProtocol* const subghz_protocol_registry_items[] = {
     &ford_protocol_v1,
     &ford_protocol_v2,
     &ford_protocol_v3,
+    &subghz_protocol_land_rover_v0,
 
 };
 

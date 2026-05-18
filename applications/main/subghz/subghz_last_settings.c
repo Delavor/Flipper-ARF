@@ -22,6 +22,7 @@
 #define SUBGHZ_LAST_SETTING_FIELD_HOPPING_THRESHOLD                 "HoppingThreshold"
 #define SUBGHZ_LAST_SETTING_FIELD_LED_AND_POWER_AMP                 "LedAndPowerAmp"
 #define SUBGHZ_LAST_SETTING_FIELD_TX_POWER                          "TXPower"
+#define SUBGHZ_LAST_SETTING_FIELD_CUSTOM_CAR_EMULATE                "CustomCarEmulate"
 
 SubGhzLastSettings* subghz_last_settings_alloc(void) {
     SubGhzLastSettings* instance = malloc(sizeof(SubGhzLastSettings));
@@ -163,6 +164,14 @@ void subghz_last_settings_load(SubGhzLastSettings* instance, size_t preset_count
                    1)) {
                 flipper_format_rewind(fff_data_file);
             }
+             if(!flipper_format_read_bool(
+                    fff_data_file,
+                    SUBGHZ_LAST_SETTING_FIELD_CUSTOM_CAR_EMULATE,
+                    &instance->custom_car_emulate,
+                    1)) {
+                instance->custom_car_emulate = false;
+                flipper_format_rewind(fff_data_file);
+            }
 
         } while(0);
     } else {
@@ -279,6 +288,13 @@ bool subghz_last_settings_save(SubGhzLastSettings* instance) {
         }
         if(!flipper_format_write_bool(
                file, SUBGHZ_LAST_SETTING_FIELD_LED_AND_POWER_AMP, &instance->leds_and_amp, 1)) {
+            break;
+        }
+        if(!flipper_format_write_bool(
+               file,
+               SUBGHZ_LAST_SETTING_FIELD_CUSTOM_CAR_EMULATE,
+               &instance->custom_car_emulate,
+               1)) {
             break;
         }
 

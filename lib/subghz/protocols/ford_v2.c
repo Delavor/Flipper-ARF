@@ -3,6 +3,7 @@
 #include <string.h>
 #include <lib/toolbox/manchester_decoder.h>
 #include <lib/toolbox/manchester_encoder.h>
+#include <lib/subghz/blocks/custom_btn_i.h>
 
 #define FORD_V2_TE_SHORT 200U
 #define FORD_V2_TE_LONG 400U
@@ -33,6 +34,16 @@
 #define FORD_V2_TAIL_RAW_BYTE_COUNT 5U
 #define FORD_V2_PREAMBLE_COUNT_MAX 0xFFFFU
 #define FORD_V2_ENCODER_DEFAULT_REPEAT 10U
+
+SUBGHZ_CUSTOM_BTN_DEFINE_MAP(
+    ford_v2,
+    {SUBGHZ_CUSTOM_BTN_OK,    0x11},   /* OK    → Unlock       */
+    {SUBGHZ_CUSTOM_BTN_UP,    0x10},   /* Up    → Lock         */
+    {SUBGHZ_CUSTOM_BTN_DOWN,  0x13},   /* Down  → Trunk        */
+    {SUBGHZ_CUSTOM_BTN_LEFT,  0x14},   /* Left  → Panic        */
+    {SUBGHZ_CUSTOM_BTN_RIGHT, 0x15},   /* Right → RemoteStart  */
+)
+
 
 static const uint16_t ford_v2_sync_shift16_inv =
     (uint16_t)(~(((uint16_t)FORD_V2_SYNC_0 << 8) | (uint16_t)FORD_V2_SYNC_1));
@@ -207,6 +218,10 @@ static bool ford_v2_decoder_commit_frame(SubGhzProtocolDecoderFordV2* instance) 
     if(!instance->structure_ok) {
         return false;
     }
+
+    /* Register this protocol's button map with the custom_btn system so the
+     * standard transmitter view can show UP/DOWN/LEFT/RIGHT cycling. */
+    ford_v2_custom_btn_init(instance->generic.btn);
 
     if(instance->base.callback) {
         instance->base.callback(&instance->base, instance->base.context);
@@ -461,25 +476,43 @@ static SubGhzProtocolStatus ford_v2_encoder_deserialize_read_header(
     return SubGhzProtocolStatusOk;
 }
 
-static SubGhzProtocolStatus ford_v2_encoder_deserialize_validate_and_pack(SubGhzProtocolEncoderFordV2* instance) {
+static SubGhzProtocolStatus ford_v2_encoder_deserialize_validate_and_pack(
+    SubGhzProtocolEncoderFordV2* instance) {
+
     ford_v2_encoder_rebuild_raw_from_payload(instance);
 
     if(!ford_v2_button_is_valid(instance->raw_bytes[6])) {
         return SubGhzProtocolStatusErrorParserOthers;
     }
 
+    uint16_t cnt = (uint16_t)(
+        (((uint16_t)(instance->raw_bytes[7] & 0x7FU)) << 9) |
+        (((uint16_t)instance->raw_bytes[8]) << 1) |
+        ((uint16_t)(instance->raw_bytes[9] >> 7)));
+
+    cnt = (cnt + 1U) & 0x7FFFU;
+
+    // raw_bytes[7] bits [6:0] = cnt[14:8], bit[7] = parity(btn)
+    instance->raw_bytes[7] = (instance->raw_bytes[7] & 0x80U) |
+                             (uint8_t)((cnt >> 9) & 0x7FU);
+    instance->raw_bytes[8] = (uint8_t)((cnt >> 1) & 0xFFU);
+    // raw_bytes[9] bit[7] = cnt[0], bits[6:0] = tail
+    instance->raw_bytes[9] = (instance->raw_bytes[9] & 0x7FU) |
+                             (uint8_t)((cnt & 1U) << 7);
+
     ford_v2_encoder_refresh_data_from_raw(instance);
+
     instance->generic.btn = instance->raw_bytes[6];
-    instance->generic.serial = ((uint32_t)instance->raw_bytes[2] << 24) |
-                               ((uint32_t)instance->raw_bytes[3] << 16) |
-                               ((uint32_t)instance->raw_bytes[4] << 8) |
-                               (uint32_t)instance->raw_bytes[5];
-    instance->generic.cnt = (uint16_t)((((uint16_t)(instance->raw_bytes[7] & 0x7FU)) << 9) |
-                                       (((uint16_t)instance->raw_bytes[8]) << 1) |
-                                       ((uint16_t)(instance->raw_bytes[9] >> 7)));
+    instance->generic.serial =
+        ((uint32_t)instance->raw_bytes[2] << 24) |
+        ((uint32_t)instance->raw_bytes[3] << 16) |
+        ((uint32_t)instance->raw_bytes[4] << 8) |
+        (uint32_t)instance->raw_bytes[5];
+    instance->generic.cnt = cnt;
 
     return SubGhzProtocolStatusOk;
 }
+
 
 static void ford_v2_encoder_deserialize_apply_repeat(SubGhzProtocolEncoderFordV2* instance, FlipperFormat* flipper_format) {
     flipper_format_rewind(flipper_format);
@@ -523,13 +556,36 @@ SubGhzProtocolStatus
     FuriString* temp_str = furi_string_alloc();
     furi_check(temp_str);
 
-    SubGhzProtocolStatus ret = ford_v2_encoder_deserialize_read_header(instance, flipper_format, temp_str);
+    SubGhzProtocolStatus ret =
+        ford_v2_encoder_deserialize_read_header(instance, flipper_format, temp_str);
 
     if(ret == SubGhzProtocolStatusOk) {
         ret = ford_v2_encoder_deserialize_validate_and_pack(instance);
     }
 
     if(ret == SubGhzProtocolStatusOk) {
+        ford_v2_custom_btn_init(instance->raw_bytes[6]);
+
+        uint8_t btn_sel = subghz_custom_btn_get();
+        if(btn_sel != SUBGHZ_CUSTOM_BTN_OK) {
+            uint8_t new_code = ford_v2_custom_btn_to_code(btn_sel);
+            if(ford_v2_button_is_valid(new_code)) {
+                instance->raw_bytes[6] = new_code;
+                const uint8_t k7_msb =
+                    (uint8_t)(ford_v2_uint8_parity(new_code) << 7);
+                instance->raw_bytes[7] =
+                    (instance->raw_bytes[7] & 0x7FU) | k7_msb;
+                ford_v2_encoder_refresh_data_from_raw(instance);
+                instance->generic.btn = new_code;
+            }
+        }
+
+        instance->extra_data = 0;
+        for(uint8_t i = 0; i < FORD_V2_TAIL_RAW_BYTE_COUNT; i++) {
+            instance->extra_data =
+                (instance->extra_data << 8) | (uint64_t)instance->raw_bytes[8U + i];
+        }
+
         ford_v2_encoder_deserialize_apply_repeat(instance, flipper_format);
         ford_v2_encoder_build_upload(instance);
         instance->encoder.is_running = true;
@@ -538,6 +594,7 @@ SubGhzProtocolStatus
     furi_string_free(temp_str);
     return ret;
 }
+
 
 void subghz_protocol_encoder_ford_v2_stop(void* context) {
     furi_check(context);
@@ -738,6 +795,25 @@ SubGhzProtocolStatus subghz_protocol_decoder_ford_v2_deserialize(
 
     if(!instance->structure_ok) {
         return SubGhzProtocolStatusErrorParserOthers;
+    }
+
+    /* Keep custom_btn in sync when loading from file. */
+    ford_v2_custom_btn_init(instance->generic.btn);
+
+    uint8_t btn_sel = subghz_custom_btn_get();
+    if(btn_sel != SUBGHZ_CUSTOM_BTN_OK) {
+        uint8_t new_code = ford_v2_custom_btn_to_code(btn_sel);
+        if(ford_v2_button_is_valid(new_code)) {
+            instance->generic.btn  = new_code;
+            instance->raw_bytes[6] = new_code;
+            instance->raw_bytes[7] = (instance->raw_bytes[7] & 0x7FU) |
+                                     (uint8_t)(ford_v2_uint8_parity(new_code) << 7);
+            instance->generic.data = 0;
+            for(uint8_t i = 0; i < FORD_V2_KEY_BYTE_COUNT; i++) {
+                instance->generic.data =
+                    (instance->generic.data << 8) | (uint64_t)instance->raw_bytes[i];
+            }
+        }
     }
 
     return ret;

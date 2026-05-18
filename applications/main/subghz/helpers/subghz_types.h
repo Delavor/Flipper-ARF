@@ -94,6 +94,7 @@ typedef enum {
     SubGhzViewIdReadRAW,
     SubGhzViewIdPsaDecrypt,
     SubGhzViewIdKeeloqDecrypt,
+    SubGhzViewIdCarEmulate,
 
 } SubGhzViewId;
 

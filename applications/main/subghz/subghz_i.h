@@ -43,6 +43,8 @@
 #include "helpers/subghz_txrx.h"
 #include "helpers/subghz_keeloq_keys.h"
 
+#include "views/subghz_car_emulate.h"
+
 #define SUBGHZ_MAX_LEN_NAME      64
 #define SUBGHZ_EXT_PRESET_NAME   true
 #define SUBGHZ_RAW_THRESHOLD_MIN (-90.0f)
@@ -76,6 +78,7 @@ struct SubGhz {
     SubGhzReadRAW* subghz_read_raw;
     SubGhzViewPsaDecrypt* subghz_psa_decrypt;
     SubGhzViewKeeloqDecrypt* subghz_keeloq_decrypt;
+    SubGhzCarEmulateView* car_emulate_view;
     bool raw_send_only;
 
     bool save_datetime_set;
