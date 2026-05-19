@@ -672,7 +672,7 @@ void subghz_scene_receiver_config_on_enter(void* context) {
 
     if(scene_manager_get_scene_state(subghz->scene_manager, SubGhzSceneReadRAW) !=
        SubGhzCustomEventManagerSet) {
-        /* Protocol filter — abre la lista de protocolos */
+        /* Protocol filter */
         item = variable_item_list_add(
             subghz->variable_item_list,
             "Proto Filter",
