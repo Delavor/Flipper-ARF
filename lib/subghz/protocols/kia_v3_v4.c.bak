@@ -54,9 +54,6 @@ struct SubGhzProtocolEncoderKiaV3V4 {
 
     uint32_t encrypted;
     uint32_t decrypted;
-
-    uint8_t crc_iter;
-    uint8_t bursts_sent;
 };
 
 typedef enum {
@@ -233,8 +230,6 @@ void* subghz_protocol_encoder_kia_v3_v4_alloc(SubGhzEnvironment* environment) {
     instance->btn = 0;
     instance->cnt = 0;
     instance->version = 0;
-    instance->crc_iter = 0;
-    instance->bursts_sent = 0;
 
     instance->encoder.size_upload = 600;
     instance->encoder.upload = malloc(instance->encoder.size_upload * sizeof(LevelDuration));
@@ -587,35 +582,6 @@ void subghz_protocol_encoder_kia_v3_v4_stop(void* context) {
     instance->encoder.front = 0;
 }
 
-
-static void subghz_protocol_encoder_kia_v3_v4_patch_crc(SubGhzProtocolEncoderKiaV3V4* instance) {
-    if(!instance || !instance->encoder.upload) return;
-    const bool v4 = (instance->version == 0);
-    const uint8_t crc = instance->crc_iter & 0x0FU;
-
-    /* Recalcular offset del CRC en el upload:
-       preamble (16*2=32) + sync (2) + data (68*2=136) = offset 170 */
-    const size_t KIA_CRC_UPLOAD_OFFSET = 170U;
-
-    size_t idx = KIA_CRC_UPLOAD_OFFSET;
-    for(int b = 3; b >= 0; b--) {
-        const bool bit = (crc >> b) & 1U;
-        uint32_t te_short = (uint32_t)subghz_protocol_kia_v3_v4_const.te_short;
-        uint32_t te_long  = (uint32_t)subghz_protocol_kia_v3_v4_const.te_long;
-        if(v4) {
-            instance->encoder.upload[idx++] =
-                level_duration_make(false, (int32_t)(bit ? te_short : te_long));
-            instance->encoder.upload[idx++] =
-                level_duration_make(true,  (int32_t)(bit ? te_long  : te_short));
-        } else {
-            instance->encoder.upload[idx++] =
-                level_duration_make(true,  (int32_t)(bit ? te_short : te_long));
-            instance->encoder.upload[idx++] =
-                level_duration_make(false, (int32_t)(bit ? te_long  : te_short));
-        }
-    }
-}
-
 LevelDuration subghz_protocol_encoder_kia_v3_v4_yield(void* context) {
     SubGhzProtocolEncoderKiaV3V4* instance = context;
 
@@ -636,14 +602,8 @@ LevelDuration subghz_protocol_encoder_kia_v3_v4_yield(void* context) {
     LevelDuration ret = instance->encoder.upload[instance->encoder.front];
 
     if(++instance->encoder.front == instance->encoder.size_upload) {
-        /* CRC sweep: iterar sobre los 16 valores posibles de CRC en cada burst */
-        instance->crc_iter = (uint8_t)((instance->crc_iter + 1U) & 0x0FU);
-        subghz_protocol_encoder_kia_v3_v4_patch_crc(instance);
-        instance->encoder.front = 0;
         instance->encoder.repeat--;
-        if(instance->bursts_sent < 16U) {
-            instance->bursts_sent++;
-        }
+        instance->encoder.front = 0;
     }
 
     return ret;
@@ -817,8 +777,13 @@ SubGhzProtocolStatus
     furi_assert(context);
     SubGhzProtocolDecoderKiaV3V4* instance = context;
     
-    SubGhzProtocolStatus ret =
-        subghz_block_generic_deserialize_check_count_bit(&instance->generic, flipper_format, 64);
+    SubGhzProtocolStatus ret = subghz_block_generic_deserialize(&instance->generic, flipper_format);
+
+    if(ret == SubGhzProtocolStatusOk) {
+        if(instance->generic.data_count_bit < 64) {
+            ret = SubGhzProtocolStatusErrorParserBitCount;
+        }
+    }
     
     if(ret == SubGhzProtocolStatusOk) {
         if(!flipper_format_read_uint32(flipper_format, "Encrypted", &instance->encrypted, 1)) {

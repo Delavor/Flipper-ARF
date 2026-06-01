@@ -230,7 +230,17 @@ void* subghz_protocol_encoder_kia_v5_alloc(SubGhzEnvironment* environment) {
     return instance;
 }
 
+void subghz_protocol_encoder_kia_v5_free(void* context) {
+    furi_assert(context);
+    SubGhzProtocolEncoderKiaV5* instance = context;
+    free(instance->encoder.upload);
+    free(instance);
+}
 
+void subghz_protocol_encoder_kia_v5_stop(void* context) {
+    SubGhzProtocolEncoderKiaV5* instance = context;
+    instance->encoder.is_running = false;
+}
 
 static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5* instance) {
     furi_assert(instance);
