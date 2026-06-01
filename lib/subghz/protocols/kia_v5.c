@@ -18,9 +18,6 @@ static const SubGhzBlockConst subghz_protocol_kia_v5_const = {
     .min_count_bit_for_found = 64,
 };
 
-/* keystore_bytes: clave derivada del manufacturer key KIA V5.
-   En ProtoPirate esto se genera dinámicamente desde get_kia_v5_key().
-   Aquí se hardcodea la clave conocida para uso en app interna. */
 static const uint8_t keystore_bytes[] = {0x53, 0x54, 0x46, 0x52, 0x4b, 0x45, 0x30, 0x30};
 
 static uint8_t reverse_byte(uint8_t b) {
@@ -42,7 +39,6 @@ static uint64_t bit_reverse_64(uint64_t input) {
 }
 
 static uint8_t kia_v5_calculate_crc(uint64_t data) {
-    /* Shift register CRC de 2 bits (algoritmo real del protocolo KIA V5) */
     uint8_t crc = 0;
     for(int i = 63; i >= 0; i--) {
         const uint8_t bit = (data >> i) & 1U;
@@ -178,8 +174,8 @@ struct SubGhzProtocolEncoderKiaV5 {
     SubGhzProtocolBlockEncoder encoder;
     SubGhzBlockGeneric generic;
 
-    uint64_t replay_data;   /* datos para replay exacto */
-    uint8_t  replay_crc;    /* CRC pre-calculado para replay */
+    uint64_t replay_data;
+    uint8_t  replay_crc;
 };
 
 typedef enum {
@@ -239,22 +235,18 @@ static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5
     const uint32_t te_long  = (uint32_t)subghz_protocol_kia_v5_const.te_long;
     size_t index = 0;
 
-    /* Preámbulo */
     for(size_t i = 0; i < 80; i++) {
         instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
         instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     }
 
-    /* Sync */
     instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_long);
     instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
 
-    /* Data bits (64) usando replay_data */
     for(int b = 63; b >= 0; b--) {
         const bool bv = ((instance->replay_data >> b) & 1ULL) != 0ULL;
-        /* Manchester: 1 = low-high, 0 = high-low */
         if(bv) {
             instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
             instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
@@ -264,11 +256,9 @@ static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5
         }
     }
 
-    /* CRC (3 bits): bit[2]=0 fijo, bit[1], bit[0] */
-    /* bit 2: siempre 0 */
     instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
     instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
-    /* bit 1 */
+
     const bool crc_b1 = ((instance->replay_crc >> 1U) & 1U) != 0U;
     if(crc_b1) {
         instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
@@ -277,7 +267,7 @@ static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5
         instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
         instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     }
-    /* bit 0 */
+
     const bool crc_b0 = (instance->replay_crc & 1U) != 0U;
     if(crc_b0) {
         instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
@@ -287,7 +277,6 @@ static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5
         instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     }
 
-    /* End */
     instance->encoder.upload[index++] = level_duration_make(false, (int32_t)te_short);
     instance->encoder.upload[index++] = level_duration_make(true,  (int32_t)te_short);
 

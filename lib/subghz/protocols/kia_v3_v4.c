@@ -593,8 +593,6 @@ static void subghz_protocol_encoder_kia_v3_v4_patch_crc(SubGhzProtocolEncoderKia
     const bool v4 = (instance->version == 0);
     const uint8_t crc = instance->crc_iter & 0x0FU;
 
-    /* Recalcular offset del CRC en el upload:
-       preamble (16*2=32) + sync (2) + data (68*2=136) = offset 170 */
     const size_t KIA_CRC_UPLOAD_OFFSET = 170U;
 
     size_t idx = KIA_CRC_UPLOAD_OFFSET;
@@ -636,7 +634,6 @@ LevelDuration subghz_protocol_encoder_kia_v3_v4_yield(void* context) {
     LevelDuration ret = instance->encoder.upload[instance->encoder.front];
 
     if(++instance->encoder.front == instance->encoder.size_upload) {
-        /* CRC sweep: iterar sobre los 16 valores posibles de CRC en cada burst */
         instance->crc_iter = (uint8_t)((instance->crc_iter + 1U) & 0x0FU);
         subghz_protocol_encoder_kia_v3_v4_patch_crc(instance);
         instance->encoder.front = 0;
