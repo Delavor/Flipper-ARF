@@ -90,5 +90,3 @@ lib/subghz/protocols/honda_rolling.c
 lib/subghz/protocols/honda_rolling.h
 lib/subghz/protocols/honda_pandora.c
 lib/subghz/protocols/honda_pandora.h
-lib/subghz/protocols/toyota.c
-lib/subghz/protocols/toyota.h
