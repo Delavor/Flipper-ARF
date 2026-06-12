@@ -170,7 +170,7 @@ static bool kia_v3_v4_process_buffer(SubGhzProtocolDecoderKiaV3V4* instance) {
                         ((uint64_t)b[6] << 8) | (uint64_t)b[7];
     instance->generic.data = key_data;
     instance->generic.data_count_bit = 68;
-    
+
     instance->decoder.decode_data = key_data;
     instance->decoder.decode_count_bit = 68;
 
@@ -204,8 +204,8 @@ const SubGhzProtocolEncoder subghz_protocol_kia_v3_v4_encoder = {
 const SubGhzProtocol subghz_protocol_kia_v3_v4 = {
     .name = SUBGHZ_PROTOCOL_KIA_V3_V4_NAME,
     .type = SubGhzProtocolTypeDynamic,
-    .flag = SubGhzProtocolFlag_315 | SubGhzProtocolFlag_433 | SubGhzProtocolFlag_AM | 
-            SubGhzProtocolFlag_FM | SubGhzProtocolFlag_Decodable | SubGhzProtocolFlag_Load | 
+    .flag = SubGhzProtocolFlag_315 | SubGhzProtocolFlag_433 | SubGhzProtocolFlag_AM |
+            SubGhzProtocolFlag_FM | SubGhzProtocolFlag_Decodable | SubGhzProtocolFlag_Load |
             SubGhzProtocolFlag_Save | SubGhzProtocolFlag_Send,
     .decoder = &subghz_protocol_kia_v3_v4_decoder,
     .encoder = &subghz_protocol_kia_v3_v4_encoder,
@@ -411,7 +411,6 @@ SubGhzProtocolStatus
         for(size_t i = 0; i < str_len && hex_pos < 16; i++) {
             char c = key_str[i];
             if(c == ' ') continue;
-
             uint8_t nibble;
             if(c >= '0' && c <= '9') {
                 nibble = c - '0';
@@ -422,19 +421,30 @@ SubGhzProtocolStatus
             } else {
                 break;
             }
-
             key = (key << 4) | nibble;
             hex_pos++;
         }
 
         furi_string_free(temp_str);
 
-        if(hex_pos != 16) {
+        if(hex_pos < 14) {
             FURI_LOG_E(TAG, "Invalid key length: %zu nibbles", hex_pos);
             break;
         }
 
         instance->generic.data = key;
+
+        flipper_format_rewind(flipper_format);
+        if(!flipper_format_read_uint32(flipper_format, "Encrypted", &instance->encrypted, 1)) {
+            instance->encrypted = 0;
+        }
+
+        flipper_format_rewind(flipper_format);
+        uint32_t decrypted_temp = 0;
+        if(!flipper_format_read_uint32(flipper_format, "Decrypted", &decrypted_temp, 1)) {
+            decrypted_temp = 0;
+        }
+        instance->decrypted = decrypted_temp;
 
         flipper_format_rewind(flipper_format);
         if(!flipper_format_read_uint32(flipper_format, "Serial", &instance->serial, 1)) {
@@ -447,11 +457,10 @@ SubGhzProtocolStatus
             b[5] = (key >> 16) & 0xFF;
             b[6] = (key >> 8) & 0xFF;
             b[7] = key & 0xFF;
-
             instance->serial = ((uint32_t)reverse8(b[7] & 0xF0) << 24) |
-                               ((uint32_t)reverse8(b[6]) << 16) | ((uint32_t)reverse8(b[5]) << 8) |
+                               ((uint32_t)reverse8(b[6]) << 16) |
+                               ((uint32_t)reverse8(b[5]) << 8) |
                                (uint32_t)reverse8(b[4]);
-        } else {
         }
         instance->generic.serial = instance->serial;
 
@@ -468,14 +477,10 @@ SubGhzProtocolStatus
         uint32_t cnt_temp;
         if(flipper_format_read_uint32(flipper_format, "Cnt", &cnt_temp, 1)) {
             instance->cnt = (uint16_t)cnt_temp;
+        } else if(instance->decrypted != 0) {
+            instance->cnt = instance->decrypted & 0xFFFF;
         } else {
-            flipper_format_rewind(flipper_format);
-            uint32_t decrypted_temp;
-            if(flipper_format_read_uint32(flipper_format, "Decrypted", &decrypted_temp, 1)) {
-                instance->cnt = decrypted_temp & 0xFFFF;
-            } else {
-                instance->cnt = 0;
-            }
+            instance->cnt = 0;
         }
 
         flipper_format_rewind(flipper_format);
@@ -486,6 +491,26 @@ SubGhzProtocolStatus
             }
         } else if(!version_from_protocol_name) {
             instance->version = 0;
+        }
+
+        flipper_format_rewind(flipper_format);
+        uint32_t crc_temp;
+        if(flipper_format_read_uint32(flipper_format, "CRC", &crc_temp, 1)) {
+            instance->crc = (uint8_t)crc_temp;
+        } else {
+            instance->crc = 0;
+        }
+
+        if(instance->encrypted == 0 && instance->decrypted != 0) {
+            instance->encrypted = keeloq_common_encrypt(instance->decrypted, KIA_MF_KEY);
+        }
+
+        if(instance->decrypted != 0) {
+            instance->generic.btn = (instance->decrypted >> 28) & 0x0F;
+            instance->generic.cnt = instance->decrypted & 0xFFFF;
+            if(instance->btn == 0) {
+                instance->btn = instance->generic.btn;
+            }
         }
 
         flipper_format_rewind(flipper_format);
@@ -505,7 +530,7 @@ SubGhzProtocolStatus
         } else {
             selected_btn = subghz_custom_btn_get();
         }
-        
+
         if(selected_btn == 5) {
             instance->btn = 0x8;
         } else if(selected_btn >= 1 && selected_btn <= 4) {
@@ -528,48 +553,35 @@ SubGhzProtocolStatus
         for(size_t i = 0; i < sizeof(uint64_t); i++) {
             key_data[sizeof(uint64_t) - i - 1] = (instance->generic.data >> (i * 8)) & 0xFF;
         }
-        if(!flipper_format_update_hex(flipper_format, "Key", key_data, sizeof(uint64_t))) {
-        }
-
-        if(!flipper_format_rewind(flipper_format)) {
-            ret = SubGhzProtocolStatusErrorParserOthers;
-            break;
-        }
-        uint32_t cnt_to_write = instance->cnt;
-        if(!flipper_format_update_uint32(flipper_format, "Cnt", &cnt_to_write, 1)) {
-        }
-
-        if(!flipper_format_rewind(flipper_format)) {
-            ret = SubGhzProtocolStatusErrorParserOthers;
-            break;
-        }
-        uint32_t btn_to_write = instance->btn;
-        if(!flipper_format_update_uint32(flipper_format, "Btn", &btn_to_write, 1)) {
-        }
-
-        if(!flipper_format_rewind(flipper_format)) {
-            ret = SubGhzProtocolStatusErrorParserOthers;
-            break;
-        }
-        uint32_t decrypted_to_write = instance->decrypted;
-        if(!flipper_format_update_uint32(flipper_format, "Decrypted", &decrypted_to_write, 1)) {
-        }
+        flipper_format_update_hex(flipper_format, "Key", key_data, sizeof(uint64_t));
 
         if(!flipper_format_rewind(flipper_format)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
             break;
         }
         uint32_t encrypted_to_write = instance->encrypted;
-        if(!flipper_format_update_uint32(flipper_format, "Encrypted", &encrypted_to_write, 1)) {
+        flipper_format_update_uint32(flipper_format, "Encrypted", &encrypted_to_write, 1);
+
+        if(!flipper_format_rewind(flipper_format)) {
+            ret = SubGhzProtocolStatusErrorParserOthers;
+            break;
         }
+        uint32_t decrypted_to_write = instance->decrypted;
+        flipper_format_update_uint32(flipper_format, "Decrypted", &decrypted_to_write, 1);
+
+        if(!flipper_format_rewind(flipper_format)) {
+            ret = SubGhzProtocolStatusErrorParserOthers;
+            break;
+        }
+        uint32_t version_to_write = instance->version;
+        flipper_format_update_uint32(flipper_format, "Version", &version_to_write, 1);
 
         if(!flipper_format_rewind(flipper_format)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
             break;
         }
         uint32_t crc_to_write = instance->crc;
-        if(!flipper_format_update_uint32(flipper_format, "CRC", &crc_to_write, 1)) {
-        }
+        flipper_format_update_uint32(flipper_format, "CRC", &crc_to_write, 1);
 
         instance->encoder.is_running = true;
         instance->encoder.front = 0;
@@ -586,7 +598,6 @@ void subghz_protocol_encoder_kia_v3_v4_stop(void* context) {
     instance->encoder.is_running = false;
     instance->encoder.front = 0;
 }
-
 
 static void subghz_protocol_encoder_kia_v3_v4_patch_crc(SubGhzProtocolEncoderKiaV3V4* instance) {
     if(!instance || !instance->encoder.upload) return;
@@ -655,6 +666,7 @@ void* subghz_protocol_decoder_kia_v3_v4_alloc(SubGhzEnvironment* environment) {
     instance->is_v3_sync = false;
     return instance;
 }
+
 void subghz_protocol_decoder_kia_v3_v4_free(void* context) {
     furi_assert(context);
     SubGhzProtocolDecoderKiaV3V4* instance = context;
@@ -677,7 +689,7 @@ void subghz_protocol_decoder_kia_v3_v4_feed(void* context, bool level, uint32_t 
     SubGhzProtocolDecoderKiaV3V4* instance = context;
 
     switch(instance->decoder.parser_step) {
-    case KiaV3V4DecoderStepReset: 
+    case KiaV3V4DecoderStepReset:
         if(level && DURATION_DIFF(duration, subghz_protocol_kia_v3_v4_const.te_short) <
                         subghz_protocol_kia_v3_v4_const.te_delta) {
             instance->decoder.parser_step = KiaV3V4DecoderStepCheckPreamble;
@@ -778,16 +790,19 @@ SubGhzProtocolStatus subghz_protocol_decoder_kia_v3_v4_serialize(
     furi_assert(context);
     SubGhzProtocolDecoderKiaV3V4* instance = context;
 
-    SubGhzProtocolStatus ret = subghz_block_generic_serialize(&instance->generic, flipper_format, preset);
+    SubGhzProtocolStatus ret =
+        subghz_block_generic_serialize(&instance->generic, flipper_format, preset);
 
     if(ret == SubGhzProtocolStatusOk) {
-        if(!flipper_format_write_uint32(flipper_format, "Encrypted", &instance->encrypted, 1)) {
+        if(!flipper_format_write_uint32(
+               flipper_format, "Encrypted", &instance->encrypted, 1)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
         }
     }
 
     if(ret == SubGhzProtocolStatusOk) {
-        if(!flipper_format_write_uint32(flipper_format, "Decrypted", &instance->decrypted, 1)) {
+        if(!flipper_format_write_uint32(
+               flipper_format, "Decrypted", &instance->decrypted, 1)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
         }
     }
@@ -813,71 +828,123 @@ SubGhzProtocolStatus
     subghz_protocol_decoder_kia_v3_v4_deserialize(void* context, FlipperFormat* flipper_format) {
     furi_assert(context);
     SubGhzProtocolDecoderKiaV3V4* instance = context;
-    
-    SubGhzProtocolStatus ret =
-        subghz_block_generic_deserialize_check_count_bit(&instance->generic, flipper_format, 64);
-    
-    if(ret == SubGhzProtocolStatusOk) {
+
+    SubGhzProtocolStatus ret = SubGhzProtocolStatusError;
+
+    do {
+        flipper_format_rewind(flipper_format);
+        uint32_t bit_count = 0;
+        if(!flipper_format_read_uint32(flipper_format, "Bit", &bit_count, 1)) {
+            FURI_LOG_E(TAG, "Missing Bit field");
+            break;
+        }
+        if(bit_count != 68 && bit_count != 64) {
+            FURI_LOG_E(TAG, "Wrong bit count: %lu", bit_count);
+            break;
+        }
+        instance->generic.data_count_bit = 68;
+
+        flipper_format_rewind(flipper_format);
+        FuriString* temp_str = furi_string_alloc();
+        if(!flipper_format_read_string(flipper_format, "Key", temp_str)) {
+            FURI_LOG_E(TAG, "Missing Key field");
+            furi_string_free(temp_str);
+            break;
+        }
+
+        const char* key_str = furi_string_get_cstr(temp_str);
+        uint64_t key = 0;
+        size_t str_len = strlen(key_str);
+        size_t hex_pos = 0;
+
+        for(size_t i = 0; i < str_len && hex_pos < 16; i++) {
+            char c = key_str[i];
+            if(c == ' ') continue;
+            uint8_t nibble;
+            if(c >= '0' && c <= '9') {
+                nibble = c - '0';
+            } else if(c >= 'A' && c <= 'F') {
+                nibble = c - 'A' + 10;
+            } else if(c >= 'a' && c <= 'f') {
+                nibble = c - 'a' + 10;
+            } else {
+                break;
+            }
+            key = (key << 4) | nibble;
+            hex_pos++;
+        }
+        furi_string_free(temp_str);
+
+        if(hex_pos < 14) {
+            FURI_LOG_E(TAG, "Invalid key: %zu nibbles", hex_pos);
+            break;
+        }
+        instance->generic.data = key;
+
+        flipper_format_rewind(flipper_format);
         if(!flipper_format_read_uint32(flipper_format, "Encrypted", &instance->encrypted, 1)) {
             instance->encrypted = 0;
         }
-        
-        if(!flipper_format_read_uint32(flipper_format, "Decrypted", &instance->decrypted, 1)) {
-            instance->decrypted = 0;
+
+        flipper_format_rewind(flipper_format);
+        uint32_t decrypted_temp = 0;
+        if(!flipper_format_read_uint32(flipper_format, "Decrypted", &decrypted_temp, 1)) {
+            decrypted_temp = 0;
         }
-        
+        instance->decrypted = decrypted_temp;
+
+        flipper_format_rewind(flipper_format);
         uint32_t temp_version = 0;
         if(flipper_format_read_uint32(flipper_format, "Version", &temp_version, 1)) {
-            instance->version = temp_version;
+            instance->version = (uint8_t)temp_version;
         } else {
             instance->version = 0;
         }
-        
+
+        flipper_format_rewind(flipper_format);
         uint32_t temp_crc = 0;
         if(flipper_format_read_uint32(flipper_format, "CRC", &temp_crc, 1)) {
-            instance->crc = temp_crc;
+            instance->crc = (uint8_t)temp_crc;
         } else {
             instance->crc = 0;
         }
-        
+
         if(instance->decrypted != 0) {
             instance->generic.btn = (instance->decrypted >> 28) & 0x0F;
             instance->generic.cnt = instance->decrypted & 0xFFFF;
         }
-        
+
         if(instance->generic.data != 0) {
             uint8_t b[8];
             for(int i = 0; i < 8; i++) {
-                b[i] = (instance->generic.data >> ((7-i) * 8)) & 0xFF;
+                b[i] = (instance->generic.data >> ((7 - i) * 8)) & 0xFF;
             }
-            
-            instance->generic.serial = ((uint32_t)reverse8(b[7] & 0xF0) << 24) | 
-                                      ((uint32_t)reverse8(b[6]) << 16) |
-                                      ((uint32_t)reverse8(b[5]) << 8) | 
-                                      (uint32_t)reverse8(b[4]);
+            instance->generic.serial =
+                ((uint32_t)reverse8(b[7] & 0xF0) << 24) |
+                ((uint32_t)reverse8(b[6]) << 16) |
+                ((uint32_t)reverse8(b[5]) << 8) |
+                (uint32_t)reverse8(b[4]);
+        }
+
+        if(instance->encrypted == 0 && instance->decrypted != 0) {
+            instance->encrypted = keeloq_common_encrypt(instance->decrypted, KIA_MF_KEY);
         }
 
         if(subghz_custom_btn_get_original() == 0) {
             subghz_custom_btn_set_original(instance->generic.btn);
         }
         subghz_custom_btn_set_max(5);
-    }
-    
-    return ret;
-}
 
-static uint64_t compute_yek(uint64_t key) {
-    uint64_t yek = 0;
-    for(int i = 0; i < 64; i++) {
-        yek |= ((key >> i) & 1) << (63 - i);
-    }
-    return yek;
+        ret = SubGhzProtocolStatusOk;
+    } while(false);
+
+    return ret;
 }
 
 static bool kia_v3_v4_verify_crc_from_data(uint64_t data, uint8_t received_crc) {
     uint8_t bytes[8];
     for(int i = 0; i < 8; i++) {
-        bytes[i] = (data >> ((7-i) * 8)) & 0xFF;
+        bytes[i] = (data >> ((7 - i) * 8)) & 0xFF;
     }
     uint8_t calculated_crc = kia_v3_v4_calculate_crc(bytes);
     return (calculated_crc == received_crc);
@@ -887,33 +954,30 @@ void subghz_protocol_decoder_kia_v3_v4_get_string(void* context, FuriString* out
     furi_assert(context);
     SubGhzProtocolDecoderKiaV3V4* instance = context;
 
-    uint64_t yek = compute_yek(instance->generic.data);
-    uint32_t key_hi = (uint32_t)(instance->generic.data >> 32);
-    uint32_t key_lo = (uint32_t)(instance->generic.data & 0xFFFFFFFF);
-    uint32_t yek_hi = (uint32_t)(yek >> 32);
-    uint32_t yek_lo = (uint32_t)(yek & 0xFFFFFFFF);
-
     bool crc_valid = kia_v3_v4_verify_crc_from_data(instance->generic.data, instance->crc);
+
+    uint8_t kb[8];
+    for(int i = 0; i < 8; i++) {
+        kb[i] = (instance->generic.data >> ((7 - i) * 8)) & 0xFF;
+    }
 
     furi_string_cat_printf(
         output,
         "%s %dbit\r\n"
-        "Key:%08lX%08lX\r\n"
-        "Yek:%08lX%08lX\r\n"
-        "Sn:%07lX Btn:%X [%s]\r\n"
-        "Dec:%08lX Cnt:%04lX\r\n"
-        "CRC:%X %s",
+        "Key:%02X %02X %02X %02X %02X %02X %02X %02X\r\n"
+        "Encrypted:%lu\r\n"
+        "Decrypted:%lu\r\n"
+        "Btn:%X [%s]\r\n"
+        "Version:%u\r\n"
+        "CRC:%u %s",
         kia_version_names[instance->version],
         instance->generic.data_count_bit,
-        key_hi,
-        key_lo,
-        yek_hi,
-        yek_lo,
-        instance->generic.serial,
-        instance->generic.btn,
+        kb[0], kb[1], kb[2], kb[3], kb[4], kb[5], kb[6], kb[7],
+        (unsigned long)instance->encrypted,
+        (unsigned long)instance->decrypted,
+        (unsigned)instance->generic.btn,
         subghz_protocol_kia_v3_v4_get_name_button(instance->generic.btn),
-        instance->decrypted,
-        instance->generic.cnt,
-        instance->crc,
+        (unsigned)instance->version,
+        (unsigned)instance->crc,
         crc_valid ? "(OK)" : "(FAIL)");
 }

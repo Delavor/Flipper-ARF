@@ -226,8 +226,6 @@ void* subghz_protocol_encoder_kia_v5_alloc(SubGhzEnvironment* environment) {
     return instance;
 }
 
-
-
 static bool subghz_protocol_encoder_kia_v5_get_upload(SubGhzProtocolEncoderKiaV5* instance) {
     furi_assert(instance);
 
@@ -320,7 +318,7 @@ SubGhzProtocolStatus
         instance->generic.cnt = mixer_decode(encrypted);
 
         uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-	instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
+        instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
         FURI_LOG_I(TAG, "deserialize #%lu, cnt after=%04lX", call_count, (uint32_t)instance->generic.cnt);
 
         if(subghz_custom_btn_get_original() == 0) {
@@ -560,7 +558,8 @@ void subghz_protocol_decoder_kia_v5_feed(void* context, bool level, uint32_t dur
         } else {
             if(instance->bit_count >= subghz_protocol_kia_v5_const.min_count_bit_for_found) {
                 instance->generic.data = instance->saved_key;
-                instance->generic.data_count_bit = (instance->bit_count > 67) ? 67 : instance->bit_count;
+                instance->generic.data_count_bit =
+                    (instance->bit_count > 67) ? 67 : instance->bit_count;
 
                 instance->crc = (uint8_t)(instance->decoded_data & 0x07);
 
@@ -599,7 +598,8 @@ void subghz_protocol_decoder_kia_v5_feed(void* context, bool level, uint32_t dur
 
         bool data_bit;
         if(instance->bit_count <= 66 &&
-           manchester_advance(instance->manchester_state, event, &instance->manchester_state, &data_bit)) {
+           manchester_advance(
+               instance->manchester_state, event, &instance->manchester_state, &data_bit)) {
             kia_v5_add_bit(instance, data_bit);
             if(instance->bit_count == 64) {
                 instance->saved_key = instance->decoded_data;
@@ -627,10 +627,12 @@ SubGhzProtocolStatus subghz_protocol_decoder_kia_v5_serialize(
     furi_assert(context);
     SubGhzProtocolDecoderKiaV5* instance = context;
 
-    SubGhzProtocolStatus ret = subghz_block_generic_serialize(&instance->generic, flipper_format, preset);
+    SubGhzProtocolStatus ret =
+        subghz_block_generic_serialize(&instance->generic, flipper_format, preset);
 
     if(ret == SubGhzProtocolStatusOk) {
-        if(!flipper_format_write_uint32(flipper_format, "Serial", &instance->generic.serial, 1)) {
+        if(!flipper_format_write_uint32(
+               flipper_format, "Serial", &instance->generic.serial, 1)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
         }
     }
@@ -641,7 +643,8 @@ SubGhzProtocolStatus subghz_protocol_decoder_kia_v5_serialize(
         }
     }
     if(ret == SubGhzProtocolStatusOk) {
-        if(!flipper_format_write_uint32(flipper_format, "Cnt", &instance->generic.cnt, 1)) {
+        if(!flipper_format_write_uint32(
+               flipper_format, "Cnt", &instance->generic.cnt, 1)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
         }
     }
@@ -652,20 +655,8 @@ SubGhzProtocolStatus subghz_protocol_decoder_kia_v5_serialize(
         }
     }
     if(ret == SubGhzProtocolStatusOk) {
-        uint32_t raw_high = (uint32_t)(instance->generic.data >> 32);
-        uint32_t raw_low = (uint32_t)(instance->generic.data & 0xFFFFFFFF);
-        if(!flipper_format_write_uint32(flipper_format, "DataHi", &raw_high, 1)) {
-            ret = SubGhzProtocolStatusErrorParserOthers;
-        }
-        if(ret == SubGhzProtocolStatusOk) {
-            if(!flipper_format_write_uint32(flipper_format, "DataLo", &raw_low, 1)) {
-                ret = SubGhzProtocolStatusErrorParserOthers;
-            }
-        }
-    }
-    if(ret == SubGhzProtocolStatusOk) {
         uint32_t yek_high = (uint32_t)(instance->yek >> 32);
-        uint32_t yek_low = (uint32_t)(instance->yek & 0xFFFFFFFF);
+        uint32_t yek_low  = (uint32_t)(instance->yek & 0xFFFFFFFF);
         if(!flipper_format_write_uint32(flipper_format, "YekHi", &yek_high, 1)) {
             ret = SubGhzProtocolStatusErrorParserOthers;
         }
@@ -690,11 +681,15 @@ SubGhzProtocolStatus
         subghz_protocol_kia_v5_const.min_count_bit_for_found);
 
     if(ret == SubGhzProtocolStatusOk) {
+        flipper_format_rewind(flipper_format);
         uint32_t temp_crc = 0;
         if(flipper_format_read_uint32(flipper_format, "CRC", &temp_crc, 1)) {
-            instance->crc = temp_crc;
+            instance->crc = (uint8_t)temp_crc;
+        } else {
+            instance->crc = 0;
         }
 
+        flipper_format_rewind(flipper_format);
         uint32_t yek_high = 0, yek_low = 0;
         if(flipper_format_read_uint32(flipper_format, "YekHi", &yek_high, 1) &&
            flipper_format_read_uint32(flipper_format, "YekLo", &yek_low, 1)) {
@@ -714,7 +709,7 @@ SubGhzProtocolStatus
         }
 
         instance->generic.serial = (uint32_t)((instance->yek >> 32) & 0x0FFFFFFF);
-        instance->generic.btn = (uint8_t)((instance->yek >> 60) & 0x0F);
+        instance->generic.btn    = (uint8_t)((instance->yek >> 60) & 0x0F);
 
         uint32_t encrypted = (uint32_t)(instance->yek & 0xFFFFFFFF);
         instance->generic.cnt = mixer_decode(encrypted);
@@ -730,11 +725,11 @@ SubGhzProtocolStatus
 
 static const char* subghz_protocol_kia_v5_get_name_button(uint8_t btn) {
     switch(btn) {
-        case 0x01: return "Unlock";
-        case 0x02: return "Lock";
-        case 0x04: return "Trunk";
-        case 0x08: return "Horn";
-        default: return "Unknown";
+    case 0x01: return "Unlock";
+    case 0x02: return "Lock";
+    case 0x04: return "Trunk";
+    case 0x08: return "Horn";
+    default:   return "Unknown";
     }
 }
 
@@ -742,10 +737,10 @@ void subghz_protocol_decoder_kia_v5_get_string(void* context, FuriString* output
     furi_assert(context);
     SubGhzProtocolDecoderKiaV5* instance = context;
 
-    uint32_t code_found_hi = instance->generic.data >> 32;
-    uint32_t code_found_lo = instance->generic.data & 0xFFFFFFFF;
-    uint32_t yek_hi = (uint32_t)(instance->yek >> 32);
-    uint32_t yek_lo = (uint32_t)(instance->yek & 0xFFFFFFFF);
+    uint8_t kb[8];
+    for(int i = 0; i < 8; i++) {
+        kb[i] = (instance->generic.data >> ((7 - i) * 8)) & 0xFF;
+    }
 
     uint8_t calculated_crc = kia_v5_calculate_crc(instance->yek);
     bool crc_valid = (instance->crc == calculated_crc);
@@ -756,22 +751,18 @@ void subghz_protocol_decoder_kia_v5_get_string(void* context, FuriString* output
     furi_string_cat_printf(
         output,
         "%s %dbit\r\n"
-        "Key:%08lX%08lX\r\n"
-        "Yek:%08lX%08lX\r\n"
+        "Key:%02X %02X %02X %02X %02X %02X %02X %02X\r\n"
         "Sn:%07lX Cnt:%04lX\r\n"
-        "Btn:%02X:[%s] Seed:%04X\r\n"
-        "CRC:%X %s",
+        "Btn:%02X [%s] Seed:%04X\r\n"
+        "CRC:%u %s",
         instance->generic.protocol_name,
         instance->generic.data_count_bit,
-        code_found_hi,
-        code_found_lo,
-        yek_hi,
-        yek_lo,
-        instance->generic.serial,
-        instance->generic.cnt,
-        instance->generic.btn,
+        kb[0], kb[1], kb[2], kb[3], kb[4], kb[5], kb[6], kb[7],
+        (unsigned long)instance->generic.serial,
+        (unsigned long)instance->generic.cnt,
+        (unsigned)instance->generic.btn,
         subghz_protocol_kia_v5_get_name_button(instance->generic.btn),
-        seed,
-        instance->crc,
+        (unsigned)seed,
+        (unsigned)instance->crc,
         crc_valid ? "(OK)" : "(FAIL)");
 }
