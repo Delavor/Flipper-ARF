@@ -61,6 +61,7 @@ class AppBuilder:
                 ("FAP_VERSION", f'\\"{".".join(map(str, self.app.fap_version))}\\"'),
                 *self.app.cdefines,
             ],
+            CCFLAGS=self.app.cflags,
         )
         self.app_env.VariantDir(self.app_work_dir, self.app._appdir, duplicate=False)
 

@@ -56,6 +56,7 @@ class FlipperApplication:
     name: Optional[str] = ""
     entry_point: Optional[str] = None
     flags: List[str] = field(default_factory=lambda: ["Default"])
+    cflags: List[str] = field(default_factory=list)
     cdefines: List[str] = field(default_factory=list)
     requires: List[str] = field(default_factory=list)
     conflicts: List[str] = field(default_factory=list)

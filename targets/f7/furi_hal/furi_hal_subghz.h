@@ -66,6 +66,12 @@ void furi_hal_subghz_dump_state(void);
  */
 void furi_hal_subghz_load_custom_preset(const uint8_t* preset_data);
 
+void furi_hal_subghz_apply_preset_delta(
+    const uint8_t* delta,
+    size_t delta_len,
+    bool needs_scal,
+    const uint8_t* pa_table);
+
 /** Load registers
  *
  * @param      data  Registers data

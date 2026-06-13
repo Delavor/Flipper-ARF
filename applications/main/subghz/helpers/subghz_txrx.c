@@ -1,9 +1,11 @@
 #include "subghz_txrx_i.h" // IWYU pragma: keep
 
 #include <math.h>
+#include <furi_hal_subghz.h>
 #include <lib/subghz/protocols/protocol_items.h>
 #include <applications/drivers/subghz/cc1101_ext/cc1101_ext_interconnect.h>
 #include <lib/subghz/devices/cc1101_int/cc1101_int_interconnect.h>
+#include "../../../../lib/subghz/devices/subghz_preset_delta.h"
 #include <lib/subghz/blocks/custom_btn.h>
 
 #define TAG "SubGhzTxRx"
@@ -498,6 +500,36 @@ void subghz_txrx_hopper_pause(SubGhzTxRx* instance) {
     }
 }
 
+// Identify the hop index (0=AM650, 1=FM476, 2=FM95) from the name.
+// Must match the order defined in subghz_preset_delta.h
+static int subghz_hop_index_from_name(const char* name) {
+    if(strcmp(name, "AM650") == 0) return 0;
+    if(strcmp(name, "FM476") == 0) return 1;
+    if(strcmp(name, "FM95") == 0) return 2;
+    return -1; // is not part of the fast hopping set
+}
+
+// Applies the target preset using delta-patch (without SRES) when possible,
+// or falls back to the original full reload in any other case.
+static void subghz_txrx_apply_preset_fast(
+    SubGhzTxRx* instance,
+    const char* old_preset_name,
+    const char* preset_name) {
+    int from_idx = subghz_hop_index_from_name(old_preset_name);
+    int to_idx = subghz_hop_index_from_name(preset_name);
+
+    if(instance->radio_device_type == SubGhzRadioDeviceTypeInternal && from_idx >= 0 &&
+       to_idx >= 0 && from_idx != to_idx) {
+        // Fast path: delta-patch without SRES or full reload (only internal CC1101)
+        const PresetDeltaEntry* e = &preset_delta_table[from_idx][to_idx];
+        furi_hal_subghz_apply_preset_delta(e->delta, e->delta_len, e->needs_scal, e->pa_table);
+    } else {
+        // Fallback: original behavior (full reload)
+        subghz_devices_load_preset(
+            instance->radio_device, FuriHalSubGhzPresetCustom, instance->preset->data);
+    }
+}
+
 void subghz_txrx_preset_hopper_update(SubGhzTxRx* instance, float stay_threshold) {
     furi_assert(instance);
 
@@ -550,22 +582,7 @@ void subghz_txrx_preset_hopper_update(SubGhzTxRx* instance, float stay_threshold
             subghz_txrx_set_preset_internal(
                 instance, instance->preset->frequency, actual_preset_idx, 0);
 
-            bool old_is_am = (strstr(old_preset_name, "AM") != NULL);
-            bool new_is_am = (strstr(preset_name, "AM") != NULL);
-            bool modulation_changed = (old_is_am != new_is_am);
-
-            if(modulation_changed) {
-                subghz_devices_reset(instance->radio_device);
-                subghz_devices_load_preset(
-                    instance->radio_device,
-                    FuriHalSubGhzPresetCustom,
-                    instance->preset->data);
-            } else {
-                subghz_devices_load_preset(
-                    instance->radio_device,
-                    FuriHalSubGhzPresetCustom,
-                    instance->preset->data);
-            }
+            subghz_txrx_apply_preset_fast(instance, old_preset_name, preset_name);
 
             subghz_txrx_rx(instance, instance->preset->frequency);
         }
@@ -588,22 +605,7 @@ void subghz_txrx_preset_hopper_update(SubGhzTxRx* instance, float stay_threshold
             subghz_txrx_set_preset_internal(
                 instance, instance->preset->frequency, instance->preset_hopper_idx, 0);
 
-            bool old_is_am = (strstr(old_preset_name, "AM") != NULL);
-            bool new_is_am = (strstr(preset_name, "AM") != NULL);
-            bool modulation_changed = (old_is_am != new_is_am);
-
-            if(modulation_changed) {
-                subghz_devices_reset(instance->radio_device);
-                subghz_devices_load_preset(
-                    instance->radio_device,
-                    FuriHalSubGhzPresetCustom,
-                    instance->preset->data);
-            } else {
-                subghz_devices_load_preset(
-                    instance->radio_device,
-                    FuriHalSubGhzPresetCustom,
-                    instance->preset->data);
-            }
+            subghz_txrx_apply_preset_fast(instance, old_preset_name, preset_name);
 
             subghz_txrx_rx(instance, instance->preset->frequency);
         }

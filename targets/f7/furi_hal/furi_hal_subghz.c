@@ -218,6 +218,59 @@ void furi_hal_subghz_load_custom_preset(const uint8_t* preset_data) {
     }
 }
 
+/**
+* @brief Applies only to the registers that change between the current preset
+* and the destination preset, without SRES or a full reload.
+*
+* Requires the chip state to be RX/TX or IDLE before calling;
+* the function itself forces IDLE (without SRES) before writing.
+*
+* @param delta array of {reg, val} pairs (exact length given by delta_len)
+* @param delta_len number of bytes in delta (multiple of 2)
+* @param needs_scal if true, forces SCAL after writing to the delta
+* @param pa_table 8 bytes of new PA table, or NULL if not changing
+*/
+void furi_hal_subghz_apply_preset_delta(
+    const uint8_t* delta,
+    size_t delta_len,
+    bool needs_scal,
+    const uint8_t* pa_table) {
+
+    furi_check(delta);
+
+    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+
+    // Ensure IDLE (not SRES!) before touching records
+    cc1101_switch_to_idle(&furi_hal_spi_bus_handle_subghz);
+    furi_check(cc1101_wait_status_state(&furi_hal_spi_bus_handle_subghz, CC1101StateIDLE, 10000));
+
+    // Write only the records that change
+    for(size_t i = 0; i + 1 < delta_len; i += 2) {
+        cc1101_write_reg(&furi_hal_spi_bus_handle_subghz, delta[i], delta[i + 1]);
+    }
+
+    if(needs_scal) {
+        cc1101_calibrate(&furi_hal_spi_bus_handle_subghz);
+        furi_check(
+            cc1101_wait_status_state(&furi_hal_spi_bus_handle_subghz, CC1101StateIDLE, 10000));
+    }
+
+    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
+
+    if(pa_table) {
+        furi_hal_subghz_load_patable(pa_table);
+    }
+
+    if(furi_hal_rtc_is_flag_set(FuriHalRtcFlagDebug)) {
+        FURI_LOG_D(
+            TAG,
+            "Applied preset delta: %u regs, scal=%d, pa=%d",
+            (unsigned)(delta_len / 2),
+            needs_scal,
+            pa_table != NULL);
+    }
+}
+
 void furi_hal_subghz_load_registers(const uint8_t* data) {
     furi_check(data);
 
