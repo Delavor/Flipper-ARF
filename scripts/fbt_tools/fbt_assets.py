@@ -1,3 +1,4 @@
+import re
 import os
 import subprocess
 
@@ -79,46 +80,17 @@ def __invoke_git(args, source_dir):
 
 def _proto_ver_generator(target, source, env):
     target_file = target[0]
-    src_dir = source[0].dir.abspath
+    changelog_file = source[0]
 
-    def fetch(unshallow=False):
-        git_args = ["fetch", "--tags"]
-        if unshallow:
-            git_args.append("--unshallow")
+    with open(str(changelog_file), "rt") as f:
+        content = f.read()
 
-        try:
-            __invoke_git(git_args, source_dir=src_dir)
-        except (subprocess.CalledProcessError, EnvironmentError):
-            # Not great, not terrible
-            print(fg.boldred("Git: fetch failed"))
-
-    def describe():
-        try:
-            return __invoke_git(
-                ["describe", "--tags", "--abbrev=0"],
-                source_dir=src_dir,
-            )
-        except (subprocess.CalledProcessError, EnvironmentError):
-            return None
-
-    fetch()
-    git_describe = describe()
-    if not git_describe:
-        fetch(unshallow=True)
-        git_describe = describe()
-
-    if not git_describe:
-        git_describe = "0.0"
-
-    # Strip leading non-numeric characters (e.g. "v" prefix)
-    import re
-
-    version_match = re.match(r"v?(\d+)(?:\.(\d+))?", git_describe)
-    if version_match:
-        git_major = version_match.group(1)
-        git_minor = version_match.group(2) or "0"
-    else:
+    match = re.search(r"##\s*\[(\d+)\.(\d+)\]", content)
+    if not match:
         git_major, git_minor = "0", "0"
+    else:
+        git_major, git_minor = match.group(1), match.group(2)
+
     version_file_data = (
         "#pragma once",
         f"#define PROTOBUF_MAJOR_VERSION {git_major}",
