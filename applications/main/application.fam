@@ -4,14 +4,12 @@ App(
     apptype=FlipperAppType.METAPACKAGE,
     provides=[
         "gpio",
-        "infrared",
         "lfrfid",
         "nfc",
         "subghz",
-        "rolljam",
+        "subghz_remote",
         "subghz_bruteforcer",
         "archive",
-        "subghz_remote",
         "main_apps_on_start",
     ],
 )
