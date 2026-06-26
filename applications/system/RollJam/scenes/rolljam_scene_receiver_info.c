@@ -167,18 +167,12 @@ static void rolljam_scene_receiver_info_widget_callback(
             view_dispatcher_send_custom_event(
                 app->view_dispatcher, RollJamCustomEventReceiverInfoSave);
         } else if(result == GuiButtonTypeLeft) {
-//                 if(rolljam_psa_bf_plugin_ensure_loaded(app) && app->psa_bf_plugin &&
-//                    app->psa_bf_plugin->widget_left_should_bruteforce(
-//                        app, RollJamPsaBfContextReceiverInfo)) {
-//                     view_dispatcher_send_custom_event(
-//                         app->view_dispatcher, RollJamCustomEventReceiverInfoBruteforceStart);
-//                 }
-#ifdef ENABLE_EMULATE_FEATURE
-            else if(app->emulate_feature_enabled && !app->emulate_disabled_for_loaded) {
+            #ifdef ENABLE_EMULATE_FEATURE
+            if(app->emulate_feature_enabled && !app->emulate_disabled_for_loaded) {
                 view_dispatcher_send_custom_event(
                     app->view_dispatcher, RollJamCustomEventReceiverInfoEmulate);
             }
-#endif
+            #endif
         } else if(result == GuiButtonTypeCenter) {
             view_dispatcher_send_custom_event(
                 app->view_dispatcher, RollJamCustomEventReceiverInfoBruteforceCancel);
@@ -202,10 +196,8 @@ void rolljam_scene_receiver_info_on_enter(void* context) {
        app->txrx->idx_menu_chosen < rolljam_history_get_item(app->txrx->history)) {
         rolljam_selected_capture_set(
             app,
-            app->txrx->history,
-            NULL,
-            app->txrx->idx_menu_chosen,
-            RollJamCaptureOwnerReceiver);
+            RollJamCaptureOwnerMainReceiver,
+            app->txrx->idx_menu_chosen);
     }
 
 //     if(rolljam_psa_bf_plugin_ensure_loaded(app) && app->psa_bf_plugin) {

@@ -170,9 +170,7 @@ static void subghz_protocol_encoder_roger_get_upload(SubGhzProtocolEncoderRoger*
     uint8_t btn = instance->generic.btn;
 
     // Save original button for later use
-    if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(btn);
-    }
+    //         // // subghz_custom_btn_set_original(btn);
 
     // Get custom button code
     // This will override the btn variable if a custom button is set
@@ -251,9 +249,9 @@ static void subghz_protocol_roger_check_remote_controller(SubGhzBlockGeneric* in
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->btn);
+        // subghz_custom_btn_set_original(instance->btn);
     }
-    subghz_custom_btn_set_max(3);
+    // subghz_custom_btn_set_max(3);
 }
 
 SubGhzProtocolStatus

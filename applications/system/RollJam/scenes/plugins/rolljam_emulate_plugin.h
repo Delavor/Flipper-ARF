@@ -6,8 +6,8 @@
 #include <lib/flipper_application/flipper_application.h>
 #include <gui/scene_manager.h>
 
-#define PROTOPIRATE_EMULATE_PLUGIN_APP_ID      "rolljam_emulate_plugin"
-#define PROTOPIRATE_EMULATE_PLUGIN_API_VERSION 1U
+#define ROLLJAM_EMULATE_PLUGIN_APP_ID      "rolljam_emulate_plugin"
+#define ROLLJAM_EMULATE_PLUGIN_API_VERSION 1U
 
 typedef struct {
     bool (*radio_init)(void* app);

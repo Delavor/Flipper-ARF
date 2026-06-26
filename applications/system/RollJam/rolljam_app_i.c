@@ -12,7 +12,7 @@ static const char* rolljam_get_registry_plugin_path(RollJamProtocolRegistryFilte
                APP_ASSETS_PATH("plugins/rolljam_am_plugin.fal");
 }
 
-static void rolljam_unload_protocol_plugin(RollJamTxRx* txrx) {
+void rolljam_unload_protocol_plugin(RollJamTxRx* txrx) {
     furi_check(txrx);
 
     txrx->protocol_plugin = NULL;
@@ -57,29 +57,6 @@ static void rolljam_teardown_receiver_stack_for_registry_switch(RollJamApp* app)
     }
 }
 
-static const char* rolljam_get_registry_plugin_path(RollJamProtocolRegistryFilter filter) {
-    return (filter == RollJamProtocolRegistryFilterFM) ?
-               APP_ASSETS_PATH("plugins/rolljam_fm_plugin.fal") :
-               APP_ASSETS_PATH("plugins/rolljam_am_plugin.fal");
-}
-
-static void rolljam_unload_protocol_plugin(RollJamTxRx* txrx) {
-    furi_check(txrx);
-
-    txrx->protocol_plugin = NULL;
-    txrx->protocol_registry = NULL;
-
-    if(txrx->protocol_plugin_manager) {
-        plugin_manager_free(txrx->protocol_plugin_manager);
-        txrx->protocol_plugin_manager = NULL;
-    }
-
-    if(txrx->plugin_resolver) {
-        composite_api_resolver_free(txrx->plugin_resolver);
-        txrx->plugin_resolver = NULL;
-    }
-}
-
 static bool rolljam_ensure_protocol_registry_plugin(
     RollJamApp* app,
     RollJamProtocolRegistryFilter filter,
@@ -116,171 +93,6 @@ static bool rolljam_ensure_protocol_registry_plugin(
     PluginManager* manager = plugin_manager_alloc(
         ROLLJAM_PROTOCOL_PLUGIN_APP_ID,
         ROLLJAM_PROTOCOL_PLUGIN_API_VERSION,
-        composite_api_resolver_get(resolver));
-    if(!manager) {
-        FURI_LOG_E(TAG, "Failed to allocate protocol plugin manager");
-        composite_api_resolver_free(resolver);
-        return false;
-    }
-
-    const char* plugin_path = rolljam_get_registry_plugin_path(filter);
-    PluginManagerError error = plugin_manager_load_single(manager, plugin_path);
-    if(error != PluginManagerErrorNone) {
-        FURI_LOG_E(TAG, "Failed to load protocol plugin %s: %d", plugin_path, (int)error);
-        plugin_manager_free(manager);
-        composite_api_resolver_free(resolver);
-        return false;
-    }
-
-    const RollJamProtocolPlugin* plugin = plugin_manager_get_ep(manager, 0U);
-    if(!plugin || !plugin->registry) {
-        FURI_LOG_E(TAG, "Protocol plugin entry point is invalid");
-        plugin_manager_free(manager);
-        composite_api_resolver_free(resolver);
-        return false;
-    }
-
-    if(plugin->filter != filter) {
-        FURI_LOG_E(
-            TAG, "Protocol plugin filter mismatch (expected %d got %d)", filter, plugin->filter);
-        plugin_manager_free(manager);
-        composite_api_resolver_free(resolver);
-        return false;
-    }
-
-    app->txrx->plugin_resolver = resolver;
-    app->txrx->protocol_plugin_manager = manager;
-    app->txrx->protocol_plugin = plugin;
-    app->txrx->protocol_registry_filter = filter;
-    *registry = plugin->registry;
-    return true;
-}
-
-bool rolljam_refresh_protocol_registry(RollJamApp* app, bool ensure_receiver_ready) {
-    furi_check(app);
-    furi_check(app->txrx);
-
-    if(!app->txrx->environment || !app->txrx->preset) {
-        return true;
-    }
-
-    RollJamProtocolRegistryFilter filter = rolljam_get_protocol_registry_filter_for_preset(
-        app->txrx->preset->data, app->txrx->preset->data_size);
-    bool filter_changed = !app->txrx->protocol_plugin ||
-                          (app->txrx->protocol_registry_filter != filter);
-
-    if(filter_changed) {
-        rolljam_teardown_receiver_stack_for_registry_switch(app);
-    } else if(ensure_receiver_ready && !app->txrx->receiver) {
-        rolljam_teardown_receiver_stack_for_registry_switch(app);
-    }
-
-    const SubGhzProtocolRegistry* registry = NULL;
-    if(!rolljam_ensure_protocol_registry_plugin(app, filter, &registry) || !registry) {
-        FURI_LOG_E(
-            TAG,
-            "Failed to resolve %s protocol registry plugin",
-            rolljam_get_protocol_registry_filter_name(filter));
-        return false;
-    }
-
-    const bool registry_already_bound = (app->txrx->protocol_registry == registry);
-    if(!registry_already_bound) {
-        FURI_LOG_I(
-            TAG,
-            "Using %s protocol registry (%zu protocols)",
-            rolljam_get_protocol_registry_filter_name(filter),
-            registry->size);
-        subghz_environment_set_protocol_registry(app->txrx->environment, registry);
-        app->txrx->protocol_registry = registry;
-    }
-
-    if(!ensure_receiver_ready) {
-        return true;
-    }
-
-    if(app->txrx->receiver) {
-        return true;
-    }
-
-    app->txrx->receiver = subghz_receiver_alloc_init(app->txrx->environment);
-    if(!app->txrx->receiver) {
-        FURI_LOG_E(
-            TAG,
-            "Failed to allocate receiver for %s registry",
-            rolljam_get_protocol_registry_filter_name(filter));
-        return false;
-    }
-
-    subghz_receiver_set_filter(app->txrx->receiver, SubGhzProtocolFlag_Decodable);
-    return true;
-}
-
-bool rolljam_apply_protocol_registry_for_preset_data(
-    RollJamApp* app,
-    const uint8_t* preset_data,
-    size_t preset_data_size) {
-    furi_check(app);
-    furi_check(app->txrx);
-
-    if(!app->txrx->environment) {
-        return false;
-    }
-
-    RollJamProtocolRegistryFilter filter =
-        rolljam_get_protocol_registry_filter_for_preset(preset_data, preset_data_size);
-
-    bool filter_changed = !app->txrx->protocol_plugin ||
-                          (app->txrx->protocol_registry_filter != filter);
-
-    if(filter_changed) {
-        rolljam_teardown_receiver_stack_for_registry_switch(app);
-    }
-
-    const SubGhzProtocolRegistry* registry = NULL;
-    if(!rolljam_ensure_protocol_registry_plugin(app, filter, &registry) || !registry) {
-        FURI_LOG_E(
-            TAG,
-            "Failed to resolve %s registry plugin for preset apply",
-            rolljam_get_protocol_registry_filter_name(filter));
-        return false;
-    }
-
-    if(app->txrx->protocol_registry == registry) {
-        return true;
-    }
-
-    FURI_LOG_I(
-        TAG,
-        "Switching active protocol registry to %s (%zu protocols)",
-        rolljam_get_protocol_registry_filter_name(filter),
-        registry->size);
-    subghz_environment_set_protocol_registry(app->txrx->environment, registry);
-    app->txrx->protocol_registry = registry;
-    return true;
-}
-
-    if(app->txrx->protocol_plugin && app->txrx->protocol_plugin->registry &&
-       app->txrx->protocol_registry_filter == filter) {
-        *registry = app->txrx->protocol_plugin->registry;
-        return true;
-    }
-
-    if(app->txrx->protocol_plugin || app->txrx->protocol_plugin_manager ||
-       app->txrx->plugin_resolver) {
-        rolljam_unload_protocol_plugin(app->txrx);
-    }
-
-    CompositeApiResolver* resolver = composite_api_resolver_alloc();
-    if(!resolver) {
-        FURI_LOG_E(TAG, "Failed to allocate protocol plugin resolver");
-        return false;
-    }
-    composite_api_resolver_add(resolver, firmware_api_interface);
-
-    PluginManager* manager = plugin_manager_alloc(
-        PROTOPIRATE_PROTOCOL_PLUGIN_APP_ID,
-        PROTOPIRATE_PROTOCOL_PLUGIN_API_VERSION,
         composite_api_resolver_get(resolver));
     if(!manager) {
         FURI_LOG_E(TAG, "Failed to allocate protocol plugin manager");

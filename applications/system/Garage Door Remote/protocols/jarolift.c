@@ -147,7 +147,7 @@ static bool
     subghz_protocol_jarolift_gen_data(SubGhzProtocolEncoderJarolift* instance, uint8_t btn) {
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(btn);
+    // subghz_custom_btn_set_original(btn);
     }
 
     btn = subghz_protocol_jarolift_get_btn_code();
@@ -605,9 +605,9 @@ static void subghz_protocol_jarolift_remote_controller(
         instance->cnt = decrypt & 0xFFFF;
         // Save original button for later use
         if(subghz_custom_btn_get_original() == 0) {
-            subghz_custom_btn_set_original(instance->btn);
+            // subghz_custom_btn_set_original(instance->btn);
         }
-        subghz_custom_btn_set_max(3);
+        // subghz_custom_btn_set_max(3);
     } else {
         instance->btn = 0;
         instance->serial = 0;

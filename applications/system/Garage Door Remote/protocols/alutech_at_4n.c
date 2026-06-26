@@ -402,7 +402,7 @@ static bool subghz_protocol_encoder_alutech_at_4n_get_upload(
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(btn);
+        // subghz_custom_btn_set_original(btn);
     }
 
     btn = subghz_protocol_alutech_at_4n_get_btn_code();
@@ -727,9 +727,9 @@ static void subghz_protocol_alutech_at_4n_remote_controller(
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->btn);
+        // subghz_custom_btn_set_original(instance->btn);
     }
-    subghz_custom_btn_set_max(4);
+    // subghz_custom_btn_set_max(4);
 }
 
 uint8_t subghz_protocol_decoder_alutech_at_4n_get_hash_data(void* context) {

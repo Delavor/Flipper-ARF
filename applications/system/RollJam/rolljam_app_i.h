@@ -7,6 +7,9 @@
 #include "scenes/rolljam_scene.h"
 #include "views/rolljam_receiver.h"
 #include "rolljam_history.h"
+#include "helpers/rolljam_selected_capture.h"
+#include "helpers/rolljam_rx_chain.h"
+#include "helpers/rolljam_tx_chain.h"
 #include "helpers/radio_device_loader.h"
 
 #include <gui/gui.h>
@@ -35,7 +38,7 @@
 #endif
 #include "scenes/plugins/rolljam_psa_bf_plugin.h"
 
-#define PROTOPIRATE_KEYSTORE_DIR_NAME APP_ASSETS_PATH("encrypted")
+#define ROLLJAM_KEYSTORE_DIR_NAME APP_ASSETS_PATH("encrypted")
 
 typedef struct RollJamApp RollJamApp;
 
@@ -88,6 +91,8 @@ struct RollJamApp {
     bool emulate_disabled_for_loaded;
     bool emulate_feature_enabled;
     RollJamSelectedCapture selected_capture;
+    RollJamCaptureOwner unsaved_history_owner;
+    bool shield_auto_save_failed;
 #ifdef ENABLE_EMULATE_FEATURE
 #define EMULATE_NAV_NONE     0U
 #define EMULATE_NAV_POP      1U
@@ -180,6 +185,8 @@ void rolljam_rx_stack_suspend_for_tx(RollJamApp* app);
 void rolljam_rx_stack_resume_after_tx(RollJamApp* app);
 
 void rolljam_app_free(RollJamApp* app);
+
+void rolljam_unload_protocol_plugin(RollJamTxRx* txrx);
 
 static const NotificationSequence sequence_tx = {
     &message_note_c5,

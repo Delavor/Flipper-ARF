@@ -114,8 +114,8 @@ static bool emulate_plugin_load(RollJamApp* app) {
     composite_api_resolver_add(resolver, firmware_api_interface);
 
     PluginManager* manager = plugin_manager_alloc(
-        PROTOPIRATE_EMULATE_PLUGIN_APP_ID,
-        PROTOPIRATE_EMULATE_PLUGIN_API_VERSION,
+        ROLLJAM_EMULATE_PLUGIN_APP_ID,
+        ROLLJAM_EMULATE_PLUGIN_API_VERSION,
         composite_api_resolver_get(resolver));
     if(!manager) {
         FURI_LOG_E(TAG, "Failed to allocate emulate plugin manager");

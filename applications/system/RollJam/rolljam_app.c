@@ -216,7 +216,7 @@ static void rolljam_radio_init_cleanup(RollJamApp* app, bool devices_initialized
     }
 
     if(app->txrx->protocol_plugin_manager) {
-        rolljam_unload_protocol_plugins(app->txrx);
+        rolljam_unload_protocol_plugin(app->txrx);
     }
 
     if(app->txrx->plugin_resolver) {
@@ -577,7 +577,7 @@ void rolljam_radio_deinit(RollJamApp* app) {
     }
 
     if(app->txrx->protocol_plugin_manager) {
-        rolljam_unload_protocol_plugins(app->txrx);
+        rolljam_unload_protocol_plugin(app->txrx);
     }
 
 
@@ -799,10 +799,10 @@ void rolljam_app_free(RollJamApp* app) {
     }
 #endif
 
-    rolljam_psa_bf_context_release(app);
+    // rolljam_psa_bf_context_release(app);
 
 #ifdef ENABLE_SHIELD_RX_SCENE
-    rolljam_scene_shield_receiver_cleanup_rolljam_tx();
+    // rolljam_scene_shield_receiver_cleanup_rolljam_tx();
 #endif
 
     // Setting

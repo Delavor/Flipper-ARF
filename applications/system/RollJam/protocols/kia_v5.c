@@ -1,5 +1,5 @@
 #include "kia_v5.h"
-#include "../protopirate_app_i.h"
+#include "../rolljam_app_i.h"
 #include "protocols_common.h"
 #include "keys.h"
 
@@ -247,7 +247,7 @@ void* kia_protocol_encoder_v5_alloc(SubGhzEnvironment* environment) {
     furi_check(instance);
 
     if(environment) {
-        protopirate_keys_load(environment);
+        rolljam_keys_load(environment);
     }
 
     instance->base.protocol = &kia_protocol_v5;
@@ -432,7 +432,7 @@ void* kia_protocol_decoder_v5_alloc(SubGhzEnvironment* environment) {
     furi_check(instance);
 
     if(environment) {
-        protopirate_keys_load(environment);
+        rolljam_keys_load(environment);
     }
 
     instance->base.protocol = &kia_protocol_v5;

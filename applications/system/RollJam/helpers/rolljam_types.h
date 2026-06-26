@@ -5,6 +5,22 @@
 #include <furi_hal.h>
 #include "../defines.h"
 
+typedef struct RollJamApp RollJamApp;
+typedef struct RollJamHistory RollJamHistory;
+
+typedef enum {
+    RollJamCaptureOwnerNone = 0,
+    RollJamCaptureOwnerDualReceiver,
+    RollJamCaptureOwnerShieldReceiver,
+    RollJamCaptureOwnerMainReceiver,
+} RollJamCaptureOwner;
+
+typedef struct {
+    uint16_t index;
+    RollJamHistory* history;
+    RollJamCaptureOwner owner;
+} RollJamSelectedCapture;
+
 typedef enum {
     RollJamViewVariableItemList,
     RollJamViewSubmenu,

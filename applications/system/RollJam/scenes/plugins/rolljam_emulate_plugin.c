@@ -1205,8 +1205,8 @@ static const RollJamEmulatePlugin rolljam_emulate_plugin = {
 };
 
 static const FlipperAppPluginDescriptor rolljam_emulate_plugin_descriptor = {
-    .appid = PROTOPIRATE_EMULATE_PLUGIN_APP_ID,
-    .ep_api_version = PROTOPIRATE_EMULATE_PLUGIN_API_VERSION,
+    .appid = ROLLJAM_EMULATE_PLUGIN_APP_ID,
+    .ep_api_version = ROLLJAM_EMULATE_PLUGIN_API_VERSION,
     .entry_point = &rolljam_emulate_plugin,
 };
 

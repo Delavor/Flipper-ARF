@@ -10,7 +10,7 @@ uint64_t kia_v6_a_key = 0;
 uint64_t kia_v6_b_key = 0;
 uint64_t kia_v5_key = 0;
 
-void protopirate_keys_load(SubGhzEnvironment* environment) {
+void rolljam_keys_load(SubGhzEnvironment* environment) {
     SubGhzKeystore* keystore = subghz_environment_get_keystore(environment);
     // Load keys from secure keystore
             for

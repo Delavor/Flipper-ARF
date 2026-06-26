@@ -342,10 +342,10 @@ static void
     }
 
     // Save original button for later use
-    if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->btn);
-    }
-    subghz_custom_btn_set_max(4);
+    // if(subghz_custom_btn_get_original() == 0) {
+    //     subghz_custom_btn_set_original(instance->btn);
+    // }
+        // subghz_custom_btn_set_max(4);
 }
 
 /** 
@@ -390,7 +390,7 @@ static uint8_t subghz_protocol_secplus_v2_get_btn_code(void);
 static void subghz_protocol_secplus_v2_encode(SubGhzProtocolEncoderSecPlus_v2* instance) {
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->generic.btn);
+        // subghz_custom_btn_set_original(instance->generic.btn);
     }
 
     instance->generic.btn = subghz_protocol_secplus_v2_get_btn_code();

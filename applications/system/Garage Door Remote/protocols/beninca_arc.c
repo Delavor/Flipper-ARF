@@ -206,10 +206,10 @@ static uint64_t
     generic->seed = ((uint16_t)encrypted_data[14] << 8) | encrypted_data[15];
 
     // Save original button for later use
-    if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(generic->btn);
-    }
-    subghz_custom_btn_set_max(2);
+    // if(subghz_custom_btn_get_original() == 0) {
+    //     subghz_custom_btn_set_original(generic->btn);
+    // }
+        // subghz_custom_btn_set_max(2);
 
     return middle_bytes;
 }

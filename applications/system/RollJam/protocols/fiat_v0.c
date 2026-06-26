@@ -1,6 +1,6 @@
 #include "fiat_v0.h"
 #include "protocols_common.h"
-#include "../protopirate_app_i.h"
+#include "../rolljam_app_i.h"
 #include <lib/toolbox/manchester_decoder.h>
 #include <inttypes.h>
 

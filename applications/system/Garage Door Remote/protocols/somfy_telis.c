@@ -119,7 +119,7 @@ static bool subghz_protocol_somfy_telis_gen_data(
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(btn);
+        // subghz_custom_btn_set_original(btn);
     }
 
     btn = subghz_protocol_somfy_telis_get_btn_code();
@@ -627,9 +627,9 @@ static void subghz_protocol_somfy_telis_check_remote_controller(SubGhzBlockGener
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->btn);
+        // subghz_custom_btn_set_original(instance->btn);
     }
-    subghz_custom_btn_set_max(3);
+    // subghz_custom_btn_set_max(3);
 }
 
 /** 

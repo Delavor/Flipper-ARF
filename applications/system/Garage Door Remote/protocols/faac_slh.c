@@ -131,7 +131,7 @@ static bool subghz_protocol_faac_slh_gen_data(SubGhzProtocolEncoderFaacSLH* inst
     } else {
         // TODO: Stupid bypass for custom button, remake later
         if(subghz_custom_btn_get_original() == 0) {
-            subghz_custom_btn_set_original(0xF);
+            // subghz_custom_btn_set_original(0xF);
         }
 
         uint8_t custom_btn_id = subghz_custom_btn_get();
@@ -565,10 +565,10 @@ static void subghz_protocol_faac_slh_check_remote_controller(
 
     // TODO: Stupid bypass for custom button, remake later
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(0xF);
+        // subghz_custom_btn_set_original(0xF);
     }
 
-    subghz_custom_btn_set_max(1);
+    // subghz_custom_btn_set_max(1);
 
     uint8_t data_tmp = 0;
     uint8_t data_prg[8];

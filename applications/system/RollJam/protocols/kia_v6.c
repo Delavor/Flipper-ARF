@@ -1,5 +1,5 @@
 #include "kia_v6.h"
-#include "../protopirate_app_i.h"
+#include "../rolljam_app_i.h"
 #include "protocols_common.h"
 #include "keys.h"
 #include <furi.h>
@@ -464,7 +464,7 @@ void* kia_protocol_decoder_v6_alloc(SubGhzEnvironment* environment) {
     memset(instance, 0, sizeof(SubGhzProtocolDecoderKiaV6));
 
     if(environment) {
-        protopirate_keys_load(environment);
+        rolljam_keys_load(environment);
     }
 
     instance->base.protocol = &kia_protocol_v6;
@@ -933,7 +933,7 @@ void* kia_protocol_encoder_v6_alloc(SubGhzEnvironment* environment) {
     memset(instance, 0, sizeof(SubGhzProtocolEncoderKiaV6));
 
     if(environment) {
-        protopirate_keys_load(environment);
+        rolljam_keys_load(environment);
     }
 
     instance->base.protocol = &kia_protocol_v6;

@@ -330,9 +330,9 @@ static void subghz_protocol_princeton_check_remote_controller(SubGhzBlockGeneric
 
     // Save original button for later use
     if(subghz_custom_btn_get_original() == 0) {
-        subghz_custom_btn_set_original(instance->btn);
+        // subghz_custom_btn_set_original(instance->btn);
     }
-    subghz_custom_btn_set_max(4);
+    // subghz_custom_btn_set_max(4);
 }
 
 SubGhzProtocolStatus

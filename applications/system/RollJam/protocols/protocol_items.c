@@ -4,17 +4,17 @@
 #include <string.h>
 #endif
 
-#define TAG "ProtoPirateRegistry"
+#define TAG "RollJamRegistry"
 
-#define PROTOPIRATE_CC1101_REG_MDMCFG2        0x12U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_MASK    0x70U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_2FSK    0x00U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_GFSK    0x10U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_ASK_OOK 0x30U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_4FSK    0x40U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_MSK     0x70U
+#define rolljam_CC1101_REG_MDMCFG2        0x12U
+#define rolljam_CC1101_MOD_FORMAT_MASK    0x70U
+#define rolljam_CC1101_MOD_FORMAT_2FSK    0x00U
+#define rolljam_CC1101_MOD_FORMAT_GFSK    0x10U
+#define rolljam_CC1101_MOD_FORMAT_ASK_OOK 0x30U
+#define rolljam_CC1101_MOD_FORMAT_4FSK    0x40U
+#define rolljam_CC1101_MOD_FORMAT_MSK     0x70U
 
-static bool protopirate_preset_try_get_register(
+static bool rolljam_preset_try_get_register(
     const uint8_t* preset_data,
     size_t preset_data_size,
     uint8_t reg,
@@ -40,41 +40,41 @@ static bool protopirate_preset_try_get_register(
     return false;
 }
 
-ProtoPirateProtocolRegistryFilter protopirate_get_protocol_registry_filter_for_preset(
+RollJamProtocolRegistryFilter rolljam_get_protocol_registry_filter_for_preset(
     const uint8_t* preset_data,
     size_t preset_data_size) {
     uint8_t mdmcfg2 = 0U;
 
-    if(!protopirate_preset_try_get_register(
-           preset_data, preset_data_size, PROTOPIRATE_CC1101_REG_MDMCFG2, &mdmcfg2)) {
+    if(!rolljam_preset_try_get_register(
+           preset_data, preset_data_size, rolljam_CC1101_REG_MDMCFG2, &mdmcfg2)) {
         FURI_LOG_W(TAG, "Preset missing MDMCFG2, defaulting to AM registry");
-        return ProtoPirateProtocolRegistryFilterAM;
+        return RollJamProtocolRegistryFilterAM;
     }
 
     // MDMCFG2[6:4] stores the CC1101 modulation format.
     // ASK/OOK maps to our AM decoder set; the FSK-family formats map to FM.
-    switch(mdmcfg2 & PROTOPIRATE_CC1101_MOD_FORMAT_MASK) {
-    case PROTOPIRATE_CC1101_MOD_FORMAT_ASK_OOK:
-        return ProtoPirateProtocolRegistryFilterAM;
-    case PROTOPIRATE_CC1101_MOD_FORMAT_2FSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_GFSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_4FSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_MSK:
-        return ProtoPirateProtocolRegistryFilterFM;
+    switch(mdmcfg2 & rolljam_CC1101_MOD_FORMAT_MASK) {
+    case rolljam_CC1101_MOD_FORMAT_ASK_OOK:
+        return RollJamProtocolRegistryFilterAM;
+    case rolljam_CC1101_MOD_FORMAT_2FSK:
+    case rolljam_CC1101_MOD_FORMAT_GFSK:
+    case rolljam_CC1101_MOD_FORMAT_4FSK:
+    case rolljam_CC1101_MOD_FORMAT_MSK:
+        return RollJamProtocolRegistryFilterFM;
     default:
         FURI_LOG_W(TAG, "Unknown MDMCFG2 0x%02X, defaulting to AM registry", mdmcfg2);
-        return ProtoPirateProtocolRegistryFilterAM;
+        return RollJamProtocolRegistryFilterAM;
     }
 }
 
 const char*
-    protopirate_get_protocol_registry_filter_name(ProtoPirateProtocolRegistryFilter filter) {
-    return (filter == ProtoPirateProtocolRegistryFilterFM) ? "FM" : "AM";
+    rolljam_get_protocol_registry_filter_name(RollJamProtocolRegistryFilter filter) {
+    return (filter == RollJamProtocolRegistryFilterFM) ? "FM" : "AM";
 }
 
 #ifdef ENABLE_TIMING_TUNER_SCENE
 // Protocol timing definitions - mirrors the SubGhzBlockConst in each protocol
-static const ProtoPirateProtocolTiming protocol_timings[] = {
+static const RollJamProtocolTiming protocol_timings[] = {
     // Honda Static
     {
         .name = HONDA_STATIC_PROTOCOL_NAME,
@@ -271,7 +271,7 @@ static const ProtoPirateProtocolTiming protocol_timings[] = {
 
 static const size_t protocol_timings_count = COUNT_OF(protocol_timings);
 
-const ProtoPirateProtocolTiming* protopirate_get_protocol_timing(const char* protocol_name) {
+const RollJamProtocolTiming* rolljam_get_protocol_timing(const char* protocol_name) {
     if(!protocol_name) return NULL;
 
     for(size_t i = 0; i < protocol_timings_count; i++) {
@@ -303,12 +303,12 @@ const ProtoPirateProtocolTiming* protopirate_get_protocol_timing(const char* pro
     return NULL;
 }
 
-const ProtoPirateProtocolTiming* protopirate_get_protocol_timing_by_index(size_t index) {
+const RollJamProtocolTiming* rolljam_get_protocol_timing_by_index(size_t index) {
     if(index >= protocol_timings_count) return NULL;
     return &protocol_timings[index];
 }
 
-size_t protopirate_get_protocol_timing_count(void) {
+size_t rolljam_get_protocol_timing_count(void) {
     return protocol_timings_count;
 }
 #endif

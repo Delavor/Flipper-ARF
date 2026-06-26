@@ -6,11 +6,12 @@ App(
     entry_point="rolljam_app",
     requires=["gui"],
     stack_size=10 * 1024,
+    order=10,
     fap_description="RollJam Shield Receiver",
     fap_version="2.0",
     fap_category="Sub-GHz",
     cdefines=["ENABLE_SHIELD_RX_SCENE=1", "ENABLE_EMULATE_FEATURE=1"],
-    fap_icon=None,
+    fap_icon="icon.png",
     fap_file_assets="keystore",
     sources=[
         "rolljam_app.c",
@@ -26,14 +27,15 @@ App(
         "scenes/rolljam_scene_need_saving.c",
         "scenes/rolljam_scene_emulate.c",
         "scenes/rolljam_scene_about.c",
-//         "scenes/plugins/rolljam_psa_bf_plugin.c",
+#         "scenes/plugins/rolljam_psa_bf_plugin.c",
         "views/rolljam_receiver.c",
         "helpers/rolljam_rx_chain.c",
         "helpers/rolljam_tx_chain.c",
         "helpers/rolljam_storage.c",
         "helpers/rolljam_settings.c",
+        "helpers/rolljam_selected_capture.c",
         "helpers/radio_device_loader.c",
-        "helpers/rolljam_psa_bf_host.c",
+#         "helpers/rolljam_psa_bf_host.c",
         "protocols/protocol_items.c",
         "protocols/protocols_common.c",
         "protocols/keys.c",
@@ -71,22 +73,22 @@ App(
 )
 
  
-// App(
-//     appid="rolljam_psa_bf_plugin",
-//     apptype=FlipperAppType.PLUGIN,
-//     entry_point="rolljam_psa_bf_plugin_ep",
-//     requires=["rolljam_standalone"],
-//     cdefines=["ROLLJAM_PSA_BF_PLUGIN_BUILD=1"],
-//     sources=[
-//         "scenes/plugins/rolljam_psa_bf_plugin.c",
-//         "protocols/psa_crypto.c",
-//         "protocols/psa_crypto_bf.c",
-//         "protocols/psa_bf_core.c",
-//         "protocols/protocols_common.c",
-//     ],
-// //     fap_icon_assets="images",
-//     fal_embedded=True,
-// )
+# App(
+#     appid="rolljam_psa_bf_plugin",
+#     apptype=FlipperAppType.PLUGIN,
+#     entry_point="rolljam_psa_bf_plugin_ep",
+#     requires=["rolljam_standalone"],
+#     cdefines=["ROLLJAM_PSA_BF_PLUGIN_BUILD=1"],
+#     sources=[
+#         "scenes/plugins/rolljam_psa_bf_plugin.c",
+#         "protocols/psa_crypto.c",
+#         "protocols/psa_crypto_bf.c",
+#         "protocols/psa_bf_core.c",
+#         "protocols/protocols_common.c",
+#     ],
+# #     fap_icon_assets="images",
+#     fal_embedded=True,
+# )
  
 App(
     appid="rolljam_emulate_plugin",
@@ -177,22 +179,22 @@ App(
     fal_embedded=True,
 )
 
-// App(
-//     appid="rolljam_psa_bf_plugin",
-//     apptype=FlipperAppType.PLUGIN,
-//     entry_point="rolljam_psa_bf_plugin_ep",
-//     requires=["rolljam_standalone"],
-//     cdefines=["ROLLJAM_PSA_BF_PLUGIN_BUILD=1"],
-//     sources=[
-//         "scenes/plugins/rolljam_psa_bf_plugin.c",
-//         "protocols/psa_crypto.c",
-//         "protocols/psa_crypto_bf.c",
-//         "protocols/psa_bf_core.c",
-//         "protocols/protocols_common.c",
-//     ],
-// //     fap_icon_assets="images",
-//     fal_embedded=True,
-// )
+# App(
+#     appid="rolljam_psa_bf_plugin",
+#     apptype=FlipperAppType.PLUGIN,
+#     entry_point="rolljam_psa_bf_plugin_ep",
+#     requires=["rolljam_standalone"],
+#     cdefines=["ROLLJAM_PSA_BF_PLUGIN_BUILD=1"],
+#     sources=[
+#         "scenes/plugins/rolljam_psa_bf_plugin.c",
+#         "protocols/psa_crypto.c",
+#         "protocols/psa_crypto_bf.c",
+#         "protocols/psa_bf_core.c",
+#         "protocols/protocols_common.c",
+#     ],
+# #     fap_icon_assets="images",
+#     fal_embedded=True,
+# )
 
 App(
     appid="rolljam_emulate_plugin",

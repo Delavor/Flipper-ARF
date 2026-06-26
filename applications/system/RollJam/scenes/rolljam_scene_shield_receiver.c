@@ -620,10 +620,8 @@ bool rolljam_scene_shield_receiver_on_event(void* context, SceneManagerEvent eve
             if(valid) {
                 rolljam_selected_capture_set(
                     app,
-                    app->shield_history,
-                    app->shield_history_mutex,
-                    idx,
-                    RollJamCaptureOwnerShieldReceiver);
+                    RollJamCaptureOwnerShieldReceiver,
+                    idx);
                 scene_manager_set_scene_state(
                     app->scene_manager,
                     RollJamSceneShieldReceiver,
