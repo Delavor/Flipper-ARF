@@ -436,7 +436,7 @@ bool rolljam_radio_init(RollJamApp* app) {
 
     if(app->radio_initialized) {
         const bool radio_ready = (app->txrx->environment != NULL) &&
-                                 (app->txrx->radio_device != NULL);
+                                  (app->txrx->radio_device != NULL);
         if(radio_ready) {
             FURI_LOG_D(TAG, "Radio already initialized, returning true");
             return true;
@@ -448,10 +448,14 @@ bool rolljam_radio_init(RollJamApp* app) {
             app->txrx->environment,
             app->txrx->radio_device);
         rolljam_radio_deinit(app);
+    } else if(app->txrx->environment || app->txrx->radio_device || app->txrx->worker) {
+        FURI_LOG_W(TAG, "Radio not marked initialized but resources exist, cleaning up first");
+        rolljam_radio_deinit(app);
     }
 
     // Fresh radio init - nothing was initialized before
     FURI_LOG_I(TAG, "Fresh radio init - allocating all components");
+
 
     // Create environment with our custom protocols
     app->txrx->environment = subghz_environment_alloc();

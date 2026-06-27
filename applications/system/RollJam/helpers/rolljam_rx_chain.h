@@ -26,18 +26,14 @@ typedef struct {
     SubGhzReceiver* receiver;
     SubGhzEnvironment* environment;
 
-    CompositeApiResolver* resolver;
-    PluginManager* plugin_manager;
-    const RollJamProtocolPlugin* plugin;
-    const SubGhzProtocolRegistry* registry;
-    SubGhzProtocolRegistry* merged_registry;
-    RollJamProtocolRegistryFilter filter;
-
-    // Support for multiple plugins to avoid memory limits
     CompositeApiResolver* resolvers[4];
     PluginManager* managers[4];
     const RollJamProtocolPlugin* plugins[4];
     uint8_t plugin_count;
+
+    const SubGhzProtocolRegistry* registry;
+    SubGhzProtocolRegistry* merged_registry;
+    RollJamProtocolRegistryFilter filter;
 
     SubGhzRadioPreset preset; // .name is an owned FuriString
     uint8_t* base_preset_data;

@@ -82,6 +82,7 @@ static bool rolljam_ensure_protocol_registry_plugin(
        app->txrx->plugin_resolver) {
         rolljam_unload_protocol_plugin(app->txrx);
     }
+    furi_delay_ms(10);
 
     CompositeApiResolver* resolver = composite_api_resolver_alloc();
     if(!resolver) {
@@ -90,8 +91,11 @@ static bool rolljam_ensure_protocol_registry_plugin(
     }
     composite_api_resolver_add(resolver, firmware_api_interface);
 
+    const char* appid = (filter == RollJamProtocolRegistryFilterFM) ? 
+        ROLLJAM_PROTOCOL_FM_PLUGIN_APP_ID : ROLLJAM_PROTOCOL_AM_PLUGIN_APP_ID;
+
     PluginManager* manager = plugin_manager_alloc(
-        ROLLJAM_PROTOCOL_PLUGIN_APP_ID,
+        appid,
         ROLLJAM_PROTOCOL_PLUGIN_API_VERSION,
         composite_api_resolver_get(resolver));
     if(!manager) {

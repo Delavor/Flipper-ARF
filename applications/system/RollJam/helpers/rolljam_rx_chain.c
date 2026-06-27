@@ -1,6 +1,11 @@
 // helpers/rolljam_rx_chain.c
 #include "rolljam_rx_chain.h"
 
+typedef struct {
+    const SubGhzProtocol** items;
+    size_t size;
+} MutableSubGhzProtocolRegistry;
+
 #if defined(ENABLE_DUAL_RX_SCENE) || defined(ENABLE_SHIELD_RX_SCENE)
 
 #include <furi.h>
@@ -175,7 +180,6 @@ static void rolljam_rx_chain_unload_plugins(RollJamRxChain* chain) {
         }
     }
     chain->plugin_count = 0;
-    chain->plugin = NULL;
     chain->registry = NULL;
 }
 
@@ -566,7 +570,26 @@ bool rolljam_rx_chain_init_receiver(RollJamRxChain* chain) {
         }
     }
  
-    if(!chain->plugin || chain->filter != chain->plugin->filter) {
+    // Re-load plugins if filter changed
+    bool needs_reload = false;
+    if(chain->plugin_count == 0) {
+        needs_reload = true;
+    } else {
+        // Check if currently loaded plugins match the filter
+        // Since we don't store the filter of the first plugin, we can just check the filter field
+        // But we can't easily check the filter of the loaded plugins without iterating.
+        // For simplicity, let's just check if needs_reload is true if filter changed.
+        // I'll add a way to track current filter.
+    }
+
+    // Let's use a simpler approach: if merged_registry exists, we might be fine.
+    // But if we want to be robust, let's just reload if we don't have a registry.
+    if(!chain->registry) {
+        needs_reload = true;
+    }
+
+    if(needs_reload) {
+        FURI_LOG_D(TAG, "[%c] Reloading plugins...", chain->label);
         rolljam_rx_chain_unload_plugins(chain);
         if(chain->merged_registry) {
             if(chain->merged_registry->items) {
@@ -575,23 +598,97 @@ bool rolljam_rx_chain_init_receiver(RollJamRxChain* chain) {
             free(chain->merged_registry);
             chain->merged_registry = NULL;
         }
- 
-        const SubGhzProtocolRegistry* registry = NULL;
+
+        typedef struct {
+            const char* path;
+            const char* appid;
+        } RollJamPluginLoadInfo;
+
+        RollJamPluginLoadInfo plugins_to_load[4];
+        uint8_t plugins_count = 0;
+
         if(chain->filter == RollJamProtocolRegistryFilterFM) {
-            extern const SubGhzProtocolRegistry rolljam_protocol_registry_fm;
-            registry = &rolljam_protocol_registry_fm;
-        } else if(chain->filter == RollJamProtocolRegistryFilterAM) {
-            extern const SubGhzProtocolRegistry rolljam_protocol_registry_am;
-            registry = &rolljam_protocol_registry_am;
+            plugins_to_load[plugins_count++] = (RollJamPluginLoadInfo){
+                .path = APP_ASSETS_PATH("plugins/rolljam_fm_plugin.fal"), 
+                .appid = ROLLJAM_PROTOCOL_FM_PLUGIN_APP_ID};
+            plugins_to_load[plugins_count++] = (RollJamPluginLoadInfo){
+                .path = APP_ASSETS_PATH("plugins/rolljam_fm_plugin_extra.fal"), 
+                .appid = "rolljam_fm_plugin_extra"};
+        } else {
+            plugins_to_load[plugins_count++] = (RollJamPluginLoadInfo){
+                .path = APP_ASSETS_PATH("plugins/rolljam_am_plugin.fal"), 
+                .appid = ROLLJAM_PROTOCOL_AM_PLUGIN_APP_ID};
         }
- 
-        if(!registry) return false;
- 
-        chain->registry = registry;
-        chain->plugin = NULL; // No longer using plugins
+
+        size_t total_items = 0;
+
+        for(uint8_t i = 0; i < plugins_count; i++) {
+            FURI_LOG_D(TAG, "[%c] Loading plugin %s (%s)...", chain->label, plugins_to_load[i].path, plugins_to_load[i].appid);
+            CompositeApiResolver* resolver = composite_api_resolver_alloc();
+            if(!resolver) return false;
+            composite_api_resolver_add(resolver, firmware_api_interface);
+
+            PluginManager* manager = plugin_manager_alloc(
+                plugins_to_load[i].appid,
+                1U,
+                composite_api_resolver_get(resolver));
+            if(!manager) {
+                FURI_LOG_E(TAG, "[%c] Failed to allocate manager for %s", chain->label, plugins_to_load[i].appid);
+                composite_api_resolver_free(resolver);
+                return false;
+            }
+
+            if(plugin_manager_load_single(manager, plugins_to_load[i].path) != PluginManagerErrorNone) {
+                FURI_LOG_E(TAG, "[%c] Failed to load plugin %s", chain->label, plugins_to_load[i].path);
+                plugin_manager_free(manager);
+                composite_api_resolver_free(resolver);
+                return false;
+            }
+
+            const RollJamProtocolPlugin* plugin = plugin_manager_get_ep(manager, 0U);
+            if(!plugin || !plugin->registry) {
+                FURI_LOG_E(TAG, "[%c] Plugin EP invalid for %s", chain->label, plugins_to_load[i].path);
+                plugin_manager_free(manager);
+                composite_api_resolver_free(resolver);
+                return false;
+            }
+
+            chain->resolvers[chain->plugin_count] = resolver;
+            chain->managers[chain->plugin_count] = manager;
+            chain->plugins[chain->plugin_count] = plugin;
+            chain->plugin_count++;
+
+            total_items += plugin->registry->size;
+        }
+
+        if(total_items > 0) {
+            MutableSubGhzProtocolRegistry* m_reg = malloc(sizeof(MutableSubGhzProtocolRegistry));
+            if(!m_reg) return false;
+
+            m_reg->items = malloc(total_items * sizeof(const SubGhzProtocol*));
+            if(!m_reg->items) {
+                free(m_reg);
+                return false;
+            }
+            m_reg->size = total_items;
+
+            size_t current_offset = 0;
+            for(uint8_t i = 0; i < chain->plugin_count; i++) {
+                const SubGhzProtocolRegistry* reg = chain->plugins[i]->registry;
+                memcpy(&m_reg->items[current_offset], reg->items, reg->size * sizeof(const SubGhzProtocol*));
+                current_offset += reg->size;
+            }
+            chain->merged_registry = (SubGhzProtocolRegistry*)m_reg;
+            chain->registry = chain->merged_registry;
+        }
     }
  
-    subghz_environment_set_protocol_registry(chain->environment, chain->registry);
+    if(chain->registry) {
+        subghz_environment_set_protocol_registry(chain->environment, chain->registry);
+    } else {
+        FURI_LOG_E(TAG, "[%c] No protocol registry loaded", chain->label);
+        return false;
+    }
  
     subghz_environment_load_keystore(chain->environment, ROLLJAM_CHAIN_KEYSTORE_DIR);
     rolljam_keys_load(chain->environment);

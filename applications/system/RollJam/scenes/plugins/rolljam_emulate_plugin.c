@@ -377,11 +377,13 @@ static bool emulate_context_try_init_transmitter(RollJamApp* app, EmulateContext
         return false;
     }
 
+    FURI_LOG_D(TAG, "Allocating transmitter for %s...", registry_name);
     ctx->transmitter = subghz_transmitter_alloc_init(app->txrx->environment, registry_name);
     if(!ctx->transmitter) {
         FURI_LOG_E(TAG, "Failed to allocate transmitter for %s", registry_name);
         return false;
     }
+    FURI_LOG_D(TAG, "Transmitter allocated, deserializing...");
 
     flipper_format_rewind(ctx->flipper_format);
     SubGhzProtocolStatus status =
@@ -987,18 +989,20 @@ static bool plugin_on_event(void* context, SceneManagerEvent event) {
         switch(event.event) {
         case RollJamCustomEventEmulateTransmit:
             if(ctx && ctx->flipper_format) {
-                if(app->txrx->txrx_state == RollJamTxRxStateTx) {
-                    FURI_LOG_W(TAG, "Previous transmission still active, stopping it");
-                    if(app->txrx->radio_device) {
-                        subghz_devices_stop_async_tx(app->txrx->radio_device);
-                    }
-                    subghz_transmitter_stop(ctx->transmitter);
-                    furi_delay_ms(10);
-                    if(app->txrx->radio_device) {
-                        subghz_devices_idle(app->txrx->radio_device);
-                    }
-                    app->txrx->txrx_state = RollJamTxRxStateIDLE;
-                }
+    if(app->txrx->txrx_state == RollJamTxRxStateTx) {
+        FURI_LOG_W(TAG, "Previous transmission still active, stopping it");
+        if(app->txrx->radio_device) {
+            subghz_devices_stop_async_tx(app->txrx->radio_device);
+        }
+        if(ctx->transmitter) {
+            subghz_transmitter_stop(ctx->transmitter);
+        }
+        furi_delay_ms(10);
+        if(app->txrx->radio_device) {
+            subghz_devices_idle(app->txrx->radio_device);
+        }
+        app->txrx->txrx_state = RollJamTxRxStateIDLE;
+    }
 
                 emulate_context_reset_transmitter();
 

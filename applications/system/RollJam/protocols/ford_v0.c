@@ -356,6 +356,7 @@ static void encode_ford_v0(
 // =============================================================================
 
 void* subghz_protocol_encoder_ford_v0_alloc(SubGhzEnvironment* environment) {
+    FURI_LOG_I("FordV0", "Encoder alloc called");
     UNUSED(environment);
     SubGhzProtocolEncoderFordV0* instance = malloc(sizeof(SubGhzProtocolEncoderFordV0));
 
@@ -374,7 +375,7 @@ void* subghz_protocol_encoder_ford_v0_alloc(SubGhzEnvironment* environment) {
     instance->count = 0;
     instance->checksum = 0;
 
-    FURI_LOG_I(TAG, "Encoder allocated");
+    FURI_LOG_I("FordV0", "Encoder allocated");
     return instance;
 }
 

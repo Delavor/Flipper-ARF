@@ -281,8 +281,13 @@ static LevelDuration* pp_shared_upload_buf = NULL;
 
 LevelDuration* pp_shared_upload_buffer(void) {
     if(pp_shared_upload_buf == NULL) {
+        FURI_LOG_D("ProtocolsCommon", "Allocating shared upload buffer...");
         pp_shared_upload_buf = malloc(PP_SHARED_UPLOAD_CAPACITY * sizeof(LevelDuration));
-        furi_check(pp_shared_upload_buf);
+        if(!pp_shared_upload_buf) {
+            FURI_LOG_E("ProtocolsCommon", "Failed to allocate shared upload buffer!");
+            return NULL;
+        }
+        FURI_LOG_D("ProtocolsCommon", "Shared upload buffer allocated: %p", pp_shared_upload_buf);
     }
     return pp_shared_upload_buf;
 }
@@ -300,8 +305,10 @@ void pp_encoder_buffer_ensure(void* context, size_t capacity) {
     furi_check(context);
     RollJamEncoderHeader* hdr = context;
     furi_check(capacity <= PP_SHARED_UPLOAD_CAPACITY);
+    FURI_LOG_D("ProtocolsCommon", "Ensuring buffer, cap=%zu", capacity);
     hdr->encoder.upload = pp_shared_upload_buffer();
     hdr->encoder.size_upload = capacity;
+    FURI_LOG_D("ProtocolsCommon", "Buffer ensured: %p", hdr->encoder.upload);
 }
 
 uint8_t pp_decoder_hash_blocks(void* context) {
