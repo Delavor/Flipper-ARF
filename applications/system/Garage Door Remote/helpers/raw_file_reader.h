@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../protopirate_app_i.h"
+#include "../gdr_app_i.h"
 #ifdef ENABLE_SUB_DECODE_SCENE
 #include <furi.h>
 #include <storage/storage.h>

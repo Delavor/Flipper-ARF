@@ -18,4 +18,4 @@ uint64_t get_kia_v6_keystore_b();
 
 uint64_t get_kia_v5_key();
 
-void protopirate_keys_load(SubGhzEnvironment* environment);
+void gdr_keys_load(SubGhzEnvironment* environment);

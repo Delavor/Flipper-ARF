@@ -4,17 +4,17 @@
 #include <string.h>
 #endif
 
-#define TAG "ProtoPirateRegistry"
+#define TAG "GDRRegistry"
 
-#define PROTOPIRATE_CC1101_REG_MDMCFG2        0x12U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_MASK    0x70U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_2FSK    0x00U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_GFSK    0x10U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_ASK_OOK 0x30U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_4FSK    0x40U
-#define PROTOPIRATE_CC1101_MOD_FORMAT_MSK     0x70U
+#define GDR_CC1101_REG_MDMCFG2        0x12U
+#define GDR_CC1101_MOD_FORMAT_MASK    0x70U
+#define GDR_CC1101_MOD_FORMAT_2FSK    0x00U
+#define GDR_CC1101_MOD_FORMAT_GFSK    0x10U
+#define GDR_CC1101_MOD_FORMAT_ASK_OOK 0x30U
+#define GDR_CC1101_MOD_FORMAT_4FSK    0x40U
+#define GDR_CC1101_MOD_FORMAT_MSK     0x70U
 
-static bool protopirate_preset_try_get_register(
+static bool gdr_preset_try_get_register(
     const uint8_t* preset_data,
     size_t preset_data_size,
     uint8_t reg,
@@ -40,41 +40,41 @@ static bool protopirate_preset_try_get_register(
     return false;
 }
 
-ProtoPirateProtocolRegistryFilter protopirate_get_protocol_registry_filter_for_preset(
+GDRProtocolRegistryFilter gdr_get_protocol_registry_filter_for_preset(
     const uint8_t* preset_data,
     size_t preset_data_size) {
     uint8_t mdmcfg2 = 0U;
 
-    if(!protopirate_preset_try_get_register(
-           preset_data, preset_data_size, PROTOPIRATE_CC1101_REG_MDMCFG2, &mdmcfg2)) {
+    if(!gdr_preset_try_get_register(
+           preset_data, preset_data_size, GDR_CC1101_REG_MDMCFG2, &mdmcfg2)) {
         FURI_LOG_W(TAG, "Preset missing MDMCFG2, defaulting to AM registry");
-        return ProtoPirateProtocolRegistryFilterAM;
+        return GDRProtocolRegistryFilterAM;
     }
 
     // MDMCFG2[6:4] stores the CC1101 modulation format.
     // ASK/OOK maps to our AM decoder set; the FSK-family formats map to FM.
-    switch(mdmcfg2 & PROTOPIRATE_CC1101_MOD_FORMAT_MASK) {
-    case PROTOPIRATE_CC1101_MOD_FORMAT_ASK_OOK:
-        return ProtoPirateProtocolRegistryFilterAM;
-    case PROTOPIRATE_CC1101_MOD_FORMAT_2FSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_GFSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_4FSK:
-    case PROTOPIRATE_CC1101_MOD_FORMAT_MSK:
-        return ProtoPirateProtocolRegistryFilterFM;
+    switch(mdmcfg2 & GDR_CC1101_MOD_FORMAT_MASK) {
+    case GDR_CC1101_MOD_FORMAT_ASK_OOK:
+        return GDRProtocolRegistryFilterAM;
+    case GDR_CC1101_MOD_FORMAT_2FSK:
+    case GDR_CC1101_MOD_FORMAT_GFSK:
+    case GDR_CC1101_MOD_FORMAT_4FSK:
+    case GDR_CC1101_MOD_FORMAT_MSK:
+        return GDRProtocolRegistryFilterFM;
     default:
         FURI_LOG_W(TAG, "Unknown MDMCFG2 0x%02X, defaulting to AM registry", mdmcfg2);
-        return ProtoPirateProtocolRegistryFilterAM;
+        return GDRProtocolRegistryFilterAM;
     }
 }
 
 const char*
-    protopirate_get_protocol_registry_filter_name(ProtoPirateProtocolRegistryFilter filter) {
-    return (filter == ProtoPirateProtocolRegistryFilterFM) ? "FM" : "AM";
+    gdr_get_protocol_registry_filter_name(GDRProtocolRegistryFilter filter) {
+    return (filter == GDRProtocolRegistryFilterFM) ? "FM" : "AM";
 }
 
 #ifdef ENABLE_TIMING_TUNER_SCENE
 // Protocol timing definitions - mirrors the SubGhzBlockConst in each protocol
-static const ProtoPirateProtocolTiming protocol_timings[] = {
+static const GDRProtocolTiming protocol_timings[] = {
     // Star Line: PWM 250/500µs
     {
         .name = "Star Line",
@@ -96,7 +96,7 @@ static const ProtoPirateProtocolTiming protocol_timings[] = {
 
 static const size_t protocol_timings_count = COUNT_OF(protocol_timings);
 
-const ProtoPirateProtocolTiming* protopirate_get_protocol_timing(const char* protocol_name) {
+const GDRProtocolTiming* gdr_get_protocol_timing(const char* protocol_name) {
     if(!protocol_name) return NULL;
 
     for(size_t i = 0; i < protocol_timings_count; i++) {
@@ -124,12 +124,12 @@ const ProtoPirateProtocolTiming* protopirate_get_protocol_timing(const char* pro
     return NULL;
 }
 
-const ProtoPirateProtocolTiming* protopirate_get_protocol_timing_by_index(size_t index) {
+const GDRProtocolTiming* gdr_get_protocol_timing_by_index(size_t index) {
     if(index >= protocol_timings_count) return NULL;
     return &protocol_timings[index];
 }
 
-size_t protopirate_get_protocol_timing_count(void) {
+size_t gdr_get_protocol_timing_count(void) {
     return protocol_timings_count;
 }
 #endif

@@ -112,7 +112,7 @@ typedef struct {
     SubGhzProtocolDecoderBase base;
     SubGhzBlockDecoder decoder;
     SubGhzBlockGeneric generic;
-} ProtoPirateDecoderHeader;
+} GDRDecoderHeader;
 
 uint8_t pp_decoder_hash_blocks(void* context);
 
@@ -121,7 +121,7 @@ void pp_decoder_free_default(void* context);
 typedef struct {
     SubGhzProtocolEncoderBase base;
     SubGhzProtocolBlockEncoder encoder;
-} ProtoPirateEncoderHeader;
+} GDREncoderHeader;
 
 void pp_encoder_free(void* context);
 void pp_encoder_stop(void* context);

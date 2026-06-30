@@ -249,7 +249,7 @@ size_t
 
 void pp_encoder_free(void* context) {
     furi_check(context);
-    ProtoPirateEncoderHeader* hdr = context;
+    GDREncoderHeader* hdr = context;
     hdr->encoder.upload = NULL;
     hdr->encoder.size_upload = 0;
     free(hdr);
@@ -257,14 +257,14 @@ void pp_encoder_free(void* context) {
 
 void pp_encoder_stop(void* context) {
     furi_check(context);
-    ProtoPirateEncoderHeader* hdr = context;
+    GDREncoderHeader* hdr = context;
     hdr->encoder.is_running = false;
     hdr->encoder.front = 0;
 }
 
 LevelDuration pp_encoder_yield(void* context) {
     furi_check(context);
-    ProtoPirateEncoderHeader* hdr = context;
+    GDREncoderHeader* hdr = context;
     if(hdr->encoder.repeat == 0 || !hdr->encoder.is_running || hdr->encoder.size_upload == 0) {
         hdr->encoder.is_running = false;
         return level_duration_reset();
@@ -298,7 +298,7 @@ void pp_shared_upload_release(void) {
 
 void pp_encoder_buffer_ensure(void* context, size_t capacity) {
     furi_check(context);
-    ProtoPirateEncoderHeader* hdr = context;
+    GDREncoderHeader* hdr = context;
     furi_check(capacity <= PP_SHARED_UPLOAD_CAPACITY);
     hdr->encoder.upload = pp_shared_upload_buffer();
     hdr->encoder.size_upload = capacity;
@@ -306,7 +306,7 @@ void pp_encoder_buffer_ensure(void* context, size_t capacity) {
 
 uint8_t pp_decoder_hash_blocks(void* context) {
     furi_check(context);
-    ProtoPirateDecoderHeader* hdr = context;
+    GDRDecoderHeader* hdr = context;
     return subghz_protocol_blocks_get_hash_data(
         &hdr->decoder, (hdr->decoder.decode_count_bit / 8U) + 1U);
 }
