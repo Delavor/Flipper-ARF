@@ -1,0 +1,15 @@
+App(
+    appid="flipdoom",
+    name="Flipper DOOM",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="flipdoom_app",
+    cdefines=["APP_FLIPDOOM"],
+    requires=["gui"],
+    stack_size=8 * 1024,
+    fap_category="Games",
+    fap_icon="flipdoom_icon.png",
+    order=36,
+    fap_author="user",
+    fap_version="1.0",
+    fap_description="Doom-style raycaster demake for Flipper Zero. Graphics converted at build time from your own Doom shareware WAD.",
+)
