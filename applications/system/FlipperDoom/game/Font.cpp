@@ -98,9 +98,18 @@ void Font::DrawChar(uint8_t* p, char c, uint8_t xorMask)
 
     uint8_t outlineMask = xorMask ^ 0xff;
 
-    apply1(p - 1, v3(i0), outlineMask);
+    // The outline spills one byte to each side of the glyph. Clamp it to the
+    // screen buffer: with x == 0 on the first line `p - 1` lands on the heap
+    // block header of FlipperState (back_buffer is its first member) and the
+    // `|=`/`&=` write corrupts the allocator metadata -- the game keeps
+    // running fine but the firmware crashes/hangs later, when the app frees
+    // its state on exit.
+    uint8_t* bufStart = Platform::GetScreenBuffer();
+    uint8_t* bufEnd = bufStart + (DISPLAY_WIDTH * DISPLAY_HEIGHT / 8);
+
+    if (p - 1 >= bufStart) apply1(p - 1, v3(i0), outlineMask);
     apply4(p, r0, r1, r2, r3, outlineMask);
-    apply1(p + 4, v3(i3), outlineMask);
+    if (p + 4 < bufEnd) apply1(p + 4, v3(i3), outlineMask);
 
     apply4(p, i0, i1, i2, i3, xorMask);
 }
