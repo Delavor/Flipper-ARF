@@ -687,10 +687,13 @@ SubGhzProtocolStatus
     furi_assert(context);
     SubGhzProtocolDecoderKiaV5* instance = context;
 
-    SubGhzProtocolStatus ret = subghz_block_generic_deserialize_check_count_bit(
-        &instance->generic,
-        flipper_format,
-        subghz_protocol_kia_v5_const.min_count_bit_for_found);
+    SubGhzProtocolStatus ret = subghz_block_generic_deserialize(&instance->generic, flipper_format);
+
+    if((ret == SubGhzProtocolStatusOk) &&
+       (instance->generic.data_count_bit <
+        subghz_protocol_kia_v5_const.min_count_bit_for_found)) {
+        ret = SubGhzProtocolStatusErrorParserBitCount;
+    }
 
     if(ret == SubGhzProtocolStatusOk) {
         flipper_format_rewind(flipper_format);
