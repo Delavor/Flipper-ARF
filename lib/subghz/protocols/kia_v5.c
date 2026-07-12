@@ -327,8 +327,16 @@ SubGhzProtocolStatus
         uint32_t encrypted = (uint32_t)(yek & 0xFFFFFFFF);
         instance->generic.cnt = mixer_decode(encrypted);
 
-        uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-        instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
+        if(!subghz_block_generic_global_counter_override_get(&instance->generic.cnt)) {
+            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
+            instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
+        } else {
+            instance->generic.cnt &= 0xFFFF;
+        }
+
+        if(subghz_block_generic_global_button_override_get(&instance->generic.btn)) {
+            instance->generic.btn &= 0x0F;
+        }
         FURI_LOG_I(TAG, "deserialize #%lu, cnt after=%04lX", call_count, (uint32_t)instance->generic.cnt);
 
         if(subghz_custom_btn_get_original() == 0) {

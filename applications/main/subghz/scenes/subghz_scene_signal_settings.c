@@ -5,6 +5,7 @@
 #include <machine/endian.h>
 #include <toolbox/strint.h>
 #include <lib/subghz/blocks/generic.h>
+#include <lib/subghz/blocks/custom_btn.h>
 
 #define TAG "SubGhzSceneSignalSettings"
 
@@ -61,6 +62,69 @@ static Protocols protocols[] = {
 
 #define PROTOCOLS_COUNT (sizeof(protocols) / sizeof(Protocols));
 
+static void
+    subghz_scene_signal_settings_format_hex_bytes(FuriString* out, uint32_t value, uint8_t bytes) {
+    furi_string_reset(out);
+    for(uint8_t i = 0; i < bytes; i++) {
+        uint8_t shift = (bytes - i - 1) * 8;
+        furi_string_cat_printf(
+            out, "%s%02lX", i == 0 ? "" : " ", (uint32_t)((value >> shift) & 0xFF));
+    }
+}
+
+static bool subghz_scene_signal_settings_update_field(
+    FlipperFormat* fff,
+    const char* key,
+    uint32_t value,
+    uint8_t bytes) {
+    FuriString* current_value = furi_string_alloc();
+    FuriString* string_value = furi_string_alloc();
+
+    flipper_format_rewind(fff);
+    const bool string_field = flipper_format_read_string(fff, key, current_value);
+
+    bool updated = false;
+    flipper_format_rewind(fff);
+    if(string_field) {
+        subghz_scene_signal_settings_format_hex_bytes(string_value, value, bytes);
+        updated = flipper_format_insert_or_update_string_cstr(
+            fff, key, furi_string_get_cstr(string_value));
+    } else {
+        updated = flipper_format_insert_or_update_uint32(fff, key, &value, 1);
+    }
+
+    furi_string_free(string_value);
+    furi_string_free(current_value);
+    return updated;
+}
+
+static bool subghz_scene_signal_settings_rebuild_save_reload(SubGhz* subghz) {
+    const char* file_path = furi_string_get_cstr(subghz->file_path);
+    FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
+
+    bool updated = false;
+    do {
+        if(!subghz_txrx_rebuild_from_fff(subghz->txrx, fff)) {
+            FURI_LOG_E(TAG, "Error rebuilding protocol data");
+            break;
+        }
+        if(!subghz_save_protocol_to_file(subghz, fff, file_path)) {
+            FURI_LOG_E(TAG, "Error saving edited signal");
+            break;
+        }
+        if(!subghz_key_load(subghz, file_path, false)) {
+            FURI_LOG_E(TAG, "Error reloading edited signal");
+            break;
+        }
+        updated = true;
+    } while(false);
+
+    if(!updated) {
+        dialog_message_show_storage_error(subghz->dialogs, "Cannot save\nsignal");
+    }
+    return updated;
+}
+
 void subghz_scene_signal_settings_counter_mode_changed(VariableItem* item) {
     uint8_t index = variable_item_get_current_value_index(item);
     variable_item_set_current_value_text(item, counter_mode_text[index]);
@@ -110,6 +174,7 @@ void subghz_scene_signal_settings_variable_item_list_enter_callback(void* contex
     // when we click OK on "Edit counter" item
     if(index == 1) {
         submenu_called = 1;
+        furi_string_set_str(byte_input_text, "Enter ");
         furi_string_cat_printf(byte_input_text, "%i", subghz_block_generic_global.cnt_length_bit);
         furi_string_cat_str(byte_input_text, "-bits counter in HEX");
 
@@ -129,6 +194,7 @@ void subghz_scene_signal_settings_variable_item_list_enter_callback(void* contex
     // when we click OK on "Edit button" item
     if(index == 2) {
         submenu_called = 2;
+        furi_string_set_str(byte_input_text, "Enter ");
         furi_string_cat_printf(byte_input_text, "%i", subghz_block_generic_global.btn_length_bit);
         furi_string_cat_str(byte_input_text, "-bits button in HEX");
 
@@ -149,6 +215,15 @@ void subghz_scene_signal_settings_variable_item_list_enter_callback(void* contex
 
 void subghz_scene_signal_settings_on_enter(void* context) {
     SubGhz* subghz = context;
+
+    counter32 = 0;
+    counter16 = 0;
+    cnt_byte_count = 0;
+    cnt_byte_ptr = NULL;
+    button = 0;
+    btn_byte_count = 1;
+    btn_byte_ptr = NULL;
+    submenu_called = 0;
 
     // ### Counter mode section ###
 
@@ -221,6 +296,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
 
     // deserialaze and decode loaded sugbhz file and push data to subghz_block_generic_global variable
+    subghz_block_generic_global_reset(NULL);
     if(subghz_protocol_decoder_base_deserialize(decoder, subghz_txrx_get_fff_data(subghz->txrx)) ==
        SubGhzProtocolStatusOk) {
         subghz_protocol_decoder_base_get_string(decoder, tmp_text);
@@ -276,9 +352,13 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     variable_item_set_locked(item, (button_not_available), "Not available\nfor this\nprotocol !");
     //
 
-    furi_assert(cnt_byte_ptr);
-    furi_assert(cnt_byte_count > 0);
-    furi_assert(btn_byte_ptr);
+    if(!counter_not_available) {
+        furi_assert(cnt_byte_ptr);
+        furi_assert(cnt_byte_count > 0);
+    }
+    if(!button_not_available) {
+        furi_assert(btn_byte_ptr);
+    }
 
     furi_string_free(tmp_text);
 
@@ -290,23 +370,28 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == SubGhzCustomEventByteInputDone) {
+            bool updated = false;
+            int32_t tmp_counter_mult = furi_hal_subghz_get_rolling_counter_mult();
+            furi_hal_subghz_set_rolling_counter_mult(0);
+            subghz_custom_btns_reset();
+
             switch(submenu_called) {
             // edit counter
             case 1:
                 switch(cnt_byte_count) {
                 case 2:
-                    // set new cnt value and override_flag to global variable and call transmit to generate and save subghz signal
                     counter16 = __bswap16(counter16);
                     subghz_block_generic_global_counter_override_set(counter16);
-                    subghz_tx_start(subghz, subghz_txrx_get_fff_data(subghz->txrx));
-                    subghz_txrx_stop(subghz->txrx);
+                    subghz_scene_signal_settings_update_field(
+                        subghz_txrx_get_fff_data(subghz->txrx), "Cnt", counter16, cnt_byte_count);
+                    updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
                     break;
                 case 4:
-                    // the same for 32 bit Counter
                     counter32 = __bswap32(counter32);
                     subghz_block_generic_global_counter_override_set(counter32);
-                    subghz_tx_start(subghz, subghz_txrx_get_fff_data(subghz->txrx));
-                    subghz_txrx_stop(subghz->txrx);
+                    subghz_scene_signal_settings_update_field(
+                        subghz_txrx_get_fff_data(subghz->txrx), "Cnt", counter32, cnt_byte_count);
+                    updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
                     break;
                 default:
                     break;
@@ -315,28 +400,24 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
             // edit button
             case 2:
                 subghz_block_generic_global_button_override_set(button);
-                // save counter mult to rewrite subghz singnal without changing counter
-                int32_t tmp_counter = furi_hal_subghz_get_rolling_counter_mult();
-                furi_hal_subghz_set_rolling_counter_mult(0);
-                subghz_tx_start(subghz, subghz_txrx_get_fff_data(subghz->txrx));
-                subghz_txrx_stop(subghz->txrx);
-                // restore counter mult
-                furi_hal_subghz_set_rolling_counter_mult(tmp_counter);
+                subghz_scene_signal_settings_update_field(
+                    subghz_txrx_get_fff_data(subghz->txrx), "Btn", button, btn_byte_count);
+                updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
                 break;
 
             default:
                 break;
             }
 
+            furi_hal_subghz_set_rolling_counter_mult(tmp_counter_mult);
+            UNUSED(updated);
             scene_manager_previous_scene(subghz->scene_manager);
             return true;
 
-        } else {
-            if(event.type == SceneManagerEventTypeBack) {
-                scene_manager_previous_scene(subghz->scene_manager);
-                return true;
-            }
         }
+    } else if(event.type == SceneManagerEventTypeBack) {
+        scene_manager_previous_scene(subghz->scene_manager);
+        return true;
     }
     return false;
 }

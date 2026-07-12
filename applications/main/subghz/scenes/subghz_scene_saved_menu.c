@@ -1,4 +1,5 @@
 #include "../subghz_i.h" // IWYU pragma: keep
+#include <lib/subghz/blocks/generic.h>
 
 enum SubmenuIndex {
     SubmenuIndexEmulate,
@@ -21,6 +22,7 @@ void subghz_scene_saved_menu_on_enter(void* context) {
     FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
     bool is_psa_encrypted = false;
     bool has_counter = false;
+    bool has_signal_editor = false;
     if(fff) {
         FuriString* proto = furi_string_alloc();
         flipper_format_rewind(fff);
@@ -36,6 +38,19 @@ void subghz_scene_saved_menu_on_enter(void* context) {
             }
         }
         furi_string_free(proto);
+    }
+
+    if(fff) {
+        SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
+        if(decoder) {
+            flipper_format_rewind(fff);
+            subghz_block_generic_global_reset(NULL);
+            if(subghz_protocol_decoder_base_deserialize(decoder, fff) ==
+               SubGhzProtocolStatusOk) {
+                has_signal_editor = subghz_block_generic_global.cnt_is_available ||
+                                    subghz_block_generic_global.btn_is_available;
+            }
+        }
     }
 
     if(fff) {
@@ -85,10 +100,10 @@ void subghz_scene_saved_menu_on_enter(void* context) {
         subghz_scene_saved_menu_submenu_callback,
         subghz);
 
-    if(furi_hal_rtc_is_flag_set(FuriHalRtcFlagDebug)) {
+    if(has_signal_editor) {
         submenu_add_item(
             subghz->submenu,
-            "Signal Settings",
+            "Signal Editor",
             SubmenuIndexSignalSettings,
             subghz_scene_saved_menu_submenu_callback,
             subghz);
