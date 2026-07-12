@@ -10,21 +10,6 @@ enum SubmenuIndex {
     SubmenuIndexCarEmulateSettings,
 };
 
-static bool subghz_scene_saved_menu_has_field(FlipperFormat* fff, const char* key) {
-    uint32_t value = 0;
-    FuriString* value_str = furi_string_alloc();
-
-    flipper_format_rewind(fff);
-    bool has_field = flipper_format_read_uint32(fff, key, &value, 1);
-    if(!has_field) {
-        flipper_format_rewind(fff);
-        has_field = flipper_format_read_string(fff, key, value_str);
-    }
-
-    furi_string_free(value_str);
-    return has_field;
-}
-
 void subghz_scene_saved_menu_submenu_callback(void* context, uint32_t index) {
     SubGhz* subghz = context;
     view_dispatcher_send_custom_event(subghz->view_dispatcher, index);
@@ -41,12 +26,14 @@ void subghz_scene_saved_menu_on_enter(void* context) {
         FuriString* proto = furi_string_alloc();
         flipper_format_rewind(fff);
         if(flipper_format_read_string(fff, "Protocol", proto)) {
+            has_signal_editor = !furi_string_equal_str(proto, "RAW");
             if(furi_string_equal_str(proto, "PSA GROUP")) {
                 FuriString* type_str = furi_string_alloc();
                 flipper_format_rewind(fff);
                 if(!flipper_format_read_string(fff, "Type", type_str) ||
                    furi_string_equal_str(type_str, "00")) {
                     is_psa_encrypted = true;
+                    has_signal_editor = false;
                 }
                 furi_string_free(type_str);
             }
@@ -60,8 +47,6 @@ void subghz_scene_saved_menu_on_enter(void* context) {
         if(flipper_format_read_uint32(fff, "Cnt", &cnt_tmp, 1)) {
             has_counter = true;
         }
-        has_signal_editor = subghz_scene_saved_menu_has_field(fff, "Cnt") ||
-                            subghz_scene_saved_menu_has_field(fff, "Btn");
     }
 
     if(!is_psa_encrypted) {

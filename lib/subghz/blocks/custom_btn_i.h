@@ -13,6 +13,8 @@ void subghz_custom_btn_set_original(uint8_t btn_code);
 
 void subghz_custom_btn_set_max(uint8_t b);
 
+uint8_t subghz_custom_btn_get_max(void);
+
 void subghz_custom_btn_set_prog_mode(ProgMode prog_mode);
 
 ProgMode subghz_custom_btn_get_prog_mode(void);

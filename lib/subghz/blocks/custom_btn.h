@@ -19,8 +19,6 @@ bool subghz_custom_btn_set(uint8_t btn_id);
 
 uint8_t subghz_custom_btn_get(void);
 
-uint8_t subghz_custom_btn_get_max(void);
-
 uint8_t subghz_custom_btn_get_original(void);
 
 void subghz_custom_btns_reset(void);

@@ -5,7 +5,8 @@
 #include <machine/endian.h>
 #include <toolbox/strint.h>
 #include <lib/subghz/blocks/generic.h>
-#include <lib/subghz/blocks/custom_btn.h>
+#include <lib/subghz/blocks/custom_btn_i.h>
+#include <string.h>
 
 #define TAG "SubGhzSceneSignalSettings"
 
@@ -94,6 +95,91 @@ static bool subghz_scene_signal_settings_update_uint32_field(
     uint32_t value) {
     flipper_format_rewind(fff);
     return flipper_format_insert_or_update_uint32(fff, key, &value, 1);
+}
+
+static bool subghz_scene_signal_settings_hex_digit(char c, uint8_t* value) {
+    if(c >= '0' && c <= '9') {
+        *value = c - '0';
+        return true;
+    } else if(c >= 'a' && c <= 'f') {
+        *value = c - 'a' + 10;
+        return true;
+    } else if(c >= 'A' && c <= 'F') {
+        *value = c - 'A' + 10;
+        return true;
+    }
+    return false;
+}
+
+static bool subghz_scene_signal_settings_parse_hex_field(
+    const char* text,
+    const char* marker,
+    uint32_t* value,
+    uint8_t* length_bit) {
+    const char* field = strstr(text, marker);
+    if(!field) return false;
+
+    field += strlen(marker);
+    while(*field == ' ' || *field == '\t') {
+        field++;
+    }
+
+    uint32_t parsed = 0;
+    uint8_t digits = 0;
+    uint8_t digit_value = 0;
+    while(digits < 8 && subghz_scene_signal_settings_hex_digit(*field, &digit_value)) {
+        parsed = (parsed << 4) | digit_value;
+        digits++;
+        field++;
+    }
+
+    if(digits == 0) return false;
+
+    *value = parsed;
+    *length_bit = digits * 4;
+    return true;
+}
+
+static void subghz_scene_signal_settings_apply_text_fallback(FuriString* decoded_text) {
+    uint32_t value = 0;
+    uint8_t length_bit = 0;
+    const char* text = furi_string_get_cstr(decoded_text);
+
+    if(!subghz_block_generic_global.cnt_is_available &&
+       subghz_scene_signal_settings_parse_hex_field(text, "Cnt:", &value, &length_bit)) {
+        subghz_block_generic_global.cnt_is_available = true;
+        subghz_block_generic_global.current_cnt = value;
+        subghz_block_generic_global.cnt_length_bit = length_bit;
+    }
+
+    if(!subghz_block_generic_global.btn_is_available &&
+       subghz_scene_signal_settings_parse_hex_field(text, "Btn:", &value, &length_bit)) {
+        subghz_block_generic_global.btn_is_available = true;
+        subghz_block_generic_global.current_btn = value & 0xFF;
+        subghz_block_generic_global.btn_length_bit = length_bit > 8 ? 8 : length_bit;
+    }
+}
+
+static void subghz_scene_signal_settings_apply_file_fallback(FlipperFormat* fff) {
+    uint32_t value = 0;
+
+    if(!subghz_block_generic_global.cnt_is_available) {
+        flipper_format_rewind(fff);
+        if(flipper_format_read_uint32(fff, "Cnt", &value, 1)) {
+            subghz_block_generic_global.cnt_is_available = true;
+            subghz_block_generic_global.current_cnt = value;
+            subghz_block_generic_global.cnt_length_bit = 32;
+        }
+    }
+
+    if(!subghz_block_generic_global.btn_is_available) {
+        flipper_format_rewind(fff);
+        if(flipper_format_read_uint32(fff, "Btn", &value, 1)) {
+            subghz_block_generic_global.btn_is_available = true;
+            subghz_block_generic_global.current_btn = value & 0xFF;
+            subghz_block_generic_global.btn_length_bit = 8;
+        }
+    }
 }
 
 static bool subghz_scene_signal_settings_rebuild_save_reload(
@@ -332,6 +418,8 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     if(subghz_protocol_decoder_base_deserialize(decoder, subghz_txrx_get_fff_data(subghz->txrx)) ==
        SubGhzProtocolStatusOk) {
         subghz_protocol_decoder_base_get_string(decoder, tmp_text);
+        subghz_scene_signal_settings_apply_text_fallback(tmp_text);
+        subghz_scene_signal_settings_apply_file_fallback(subghz_txrx_get_fff_data(subghz->txrx));
     } else {
         FURI_LOG_E(TAG, "Cant deserialize this subghz file");
     }
