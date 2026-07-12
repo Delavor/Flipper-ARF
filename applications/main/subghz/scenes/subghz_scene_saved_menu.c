@@ -2,10 +2,10 @@
 
 enum SubmenuIndex {
     SubmenuIndexEmulate,
+    SubmenuIndexSignalSettings,
     SubmenuIndexPsaDecrypt,
     SubmenuIndexEdit,
     SubmenuIndexDelete,
-    SubmenuIndexSignalSettings,
     SubmenuIndexCounterBf,                  /* <-- comma was missing here */
     SubmenuIndexCarEmulateSettings,
 };
@@ -35,8 +35,8 @@ void subghz_scene_saved_menu_on_enter(void* context) {
 
     FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
     bool is_psa_encrypted = false;
-    bool has_counter = false;
     bool has_signal_editor = false;
+    bool has_counter = false;
     if(fff) {
         FuriString* proto = furi_string_alloc();
         flipper_format_rewind(fff);
@@ -60,7 +60,6 @@ void subghz_scene_saved_menu_on_enter(void* context) {
         if(flipper_format_read_uint32(fff, "Cnt", &cnt_tmp, 1)) {
             has_counter = true;
         }
-
         has_signal_editor = subghz_scene_saved_menu_has_field(fff, "Cnt") ||
                             subghz_scene_saved_menu_has_field(fff, "Btn");
     }
@@ -72,15 +71,15 @@ void subghz_scene_saved_menu_on_enter(void* context) {
             SubmenuIndexEmulate,
             subghz_scene_saved_menu_submenu_callback,
             subghz);
-    }
 
-    if(has_signal_editor) {
-        submenu_add_item(
-            subghz->submenu,
-            "Signal Editor",
-            SubmenuIndexSignalSettings,
-            subghz_scene_saved_menu_submenu_callback,
-            subghz);
+        if(has_signal_editor) {
+            submenu_add_item(
+                subghz->submenu,
+                "Signal Editor",
+                SubmenuIndexSignalSettings,
+                subghz_scene_saved_menu_submenu_callback,
+                subghz);
+        }
     }
 
     if(is_psa_encrypted) {

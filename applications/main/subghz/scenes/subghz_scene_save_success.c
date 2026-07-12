@@ -12,8 +12,14 @@ void subghz_scene_save_success_on_enter(void* context) {
     // Setup view
     Popup* popup = subghz->popup;
     // [NO_DOLPHIN] popup_set_icon(popup, 36, 5, &I_DolphinSaved_92x58);
-    popup_set_header(popup, "Saved", 15, 19, AlignLeft, AlignBottom);
-    popup_set_timeout(popup, 1500);
+    if(furi_string_size(subghz->error_str)) {
+        popup_set_header(popup, "Saved", 15, 4, AlignLeft, AlignTop);
+        popup_set_text(popup, furi_string_get_cstr(subghz->error_str), 4, 18, AlignLeft, AlignTop);
+        popup_set_timeout(popup, 2500);
+    } else {
+        popup_set_header(popup, "Saved", 15, 19, AlignLeft, AlignBottom);
+        popup_set_timeout(popup, 1500);
+    }
     popup_set_context(popup, subghz);
     popup_set_callback(popup, subghz_scene_save_success_popup_callback);
     popup_enable_timeout(popup);
@@ -72,4 +78,5 @@ void subghz_scene_save_success_on_exit(void* context) {
     Popup* popup = subghz->popup;
 
     popup_reset(popup);
+    furi_string_reset(subghz->error_str);
 }

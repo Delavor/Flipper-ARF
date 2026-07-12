@@ -22,6 +22,14 @@ static uint8_t btn_byte_count = 1;
 static uint8_t* btn_byte_ptr = NULL;
 
 static uint8_t submenu_called = 0;
+static bool button_uses_custom_btn = false;
+static uint8_t button_custom_id = SUBGHZ_CUSTOM_BTN_OK;
+
+enum {
+    SignalSettingsIndexCounterMode,
+    SignalSettingsIndexCounter,
+    SignalSettingsIndexButton,
+};
 
 #define COUNTER_MODE_COUNT 8
 static const char* const counter_mode_text[COUNTER_MODE_COUNT] = {
@@ -46,6 +54,24 @@ static const int32_t counter_mode_value[COUNTER_MODE_COUNT] = {
     7,
 };
 
+static const char* const button_text[] = {
+    "Original",
+    "Up",
+    "Down",
+    "Left",
+    "Right",
+};
+
+static const uint8_t button_value[] = {
+    SUBGHZ_CUSTOM_BTN_OK,
+    SUBGHZ_CUSTOM_BTN_UP,
+    SUBGHZ_CUSTOM_BTN_DOWN,
+    SUBGHZ_CUSTOM_BTN_LEFT,
+    SUBGHZ_CUSTOM_BTN_RIGHT,
+};
+
+#define BUTTON_VALUE_COUNT (sizeof(button_value) / sizeof(button_value[0]))
+
 typedef struct {
     char* name;
     uint8_t mode_count;
@@ -62,47 +88,31 @@ static Protocols protocols[] = {
 
 #define PROTOCOLS_COUNT (sizeof(protocols) / sizeof(Protocols));
 
-static void
-    subghz_scene_signal_settings_format_hex_bytes(FuriString* out, uint32_t value, uint8_t bytes) {
-    furi_string_reset(out);
-    for(uint8_t i = 0; i < bytes; i++) {
-        uint8_t shift = (bytes - i - 1) * 8;
-        furi_string_cat_printf(
-            out, "%s%02lX", i == 0 ? "" : " ", (uint32_t)((value >> shift) & 0xFF));
-    }
-}
-
-static bool subghz_scene_signal_settings_update_field(
+static bool subghz_scene_signal_settings_update_uint32_field(
     FlipperFormat* fff,
     const char* key,
-    uint32_t value,
-    uint8_t bytes) {
-    FuriString* current_value = furi_string_alloc();
-    FuriString* string_value = furi_string_alloc();
-
+    uint32_t value) {
     flipper_format_rewind(fff);
-    const bool string_field = flipper_format_read_string(fff, key, current_value);
-
-    bool updated = false;
-    flipper_format_rewind(fff);
-    if(string_field) {
-        subghz_scene_signal_settings_format_hex_bytes(string_value, value, bytes);
-        updated = flipper_format_insert_or_update_string_cstr(
-            fff, key, furi_string_get_cstr(string_value));
-    } else {
-        updated = flipper_format_insert_or_update_uint32(fff, key, &value, 1);
-    }
-
-    furi_string_free(string_value);
-    furi_string_free(current_value);
-    return updated;
+    return flipper_format_insert_or_update_uint32(fff, key, &value, 1);
 }
 
-static bool subghz_scene_signal_settings_rebuild_save_reload(SubGhz* subghz) {
+static bool subghz_scene_signal_settings_rebuild_save_reload(
+    SubGhz* subghz,
+    bool use_custom_btn,
+    uint8_t custom_btn_id) {
     const char* file_path = furi_string_get_cstr(subghz->file_path);
     FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
 
     bool updated = false;
+    int32_t counter_mult = furi_hal_subghz_get_rolling_counter_mult();
+    furi_hal_subghz_set_rolling_counter_mult(0);
+
+    if(use_custom_btn) {
+        subghz_custom_btn_set(custom_btn_id);
+    } else {
+        subghz_custom_btns_reset();
+    }
+
     do {
         if(!subghz_txrx_rebuild_from_fff(subghz->txrx, fff)) {
             FURI_LOG_E(TAG, "Error rebuilding protocol data");
@@ -118,6 +128,8 @@ static bool subghz_scene_signal_settings_rebuild_save_reload(SubGhz* subghz) {
         }
         updated = true;
     } while(false);
+
+    furi_hal_subghz_set_rolling_counter_mult(counter_mult);
 
     if(!updated) {
         dialog_message_show_storage_error(subghz->dialogs, "Cannot save\nsignal");
@@ -163,6 +175,21 @@ void subghz_scene_signal_settings_counter_mode_changed(VariableItem* item) {
     }
 }
 
+void subghz_scene_signal_settings_button_changed(VariableItem* item) {
+    uint8_t index = variable_item_get_current_value_index(item);
+    if(index >= BUTTON_VALUE_COUNT) index = 0;
+
+    variable_item_set_current_value_text(item, button_text[index]);
+    button_custom_id = button_value[index];
+
+    if(!button_uses_custom_btn) return;
+
+    SubGhz* subghz = variable_item_get_context(item);
+    furi_assert(subghz);
+
+    subghz_scene_signal_settings_rebuild_save_reload(subghz, true, button_custom_id);
+}
+
 void subghz_scene_signal_settings_byte_input_callback(void* context) {
     SubGhz* subghz = context;
     view_dispatcher_send_custom_event(subghz->view_dispatcher, SubGhzCustomEventByteInputDone);
@@ -172,7 +199,8 @@ void subghz_scene_signal_settings_variable_item_list_enter_callback(void* contex
     SubGhz* subghz = context;
 
     // when we click OK on "Edit counter" item
-    if(index == 1) {
+    if(index == SignalSettingsIndexCounter) {
+        if(!cnt_byte_ptr || cnt_byte_count == 0) return;
         submenu_called = 1;
         furi_string_set_str(byte_input_text, "Enter ");
         furi_string_cat_printf(byte_input_text, "%i", subghz_block_generic_global.cnt_length_bit);
@@ -192,7 +220,8 @@ void subghz_scene_signal_settings_variable_item_list_enter_callback(void* contex
         view_dispatcher_switch_to_view(subghz->view_dispatcher, SubGhzViewIdByteInput);
     }
     // when we click OK on "Edit button" item
-    if(index == 2) {
+    if(index == SignalSettingsIndexButton && !button_uses_custom_btn) {
+        if(!btn_byte_ptr || btn_byte_count == 0) return;
         submenu_called = 2;
         furi_string_set_str(byte_input_text, "Enter ");
         furi_string_cat_printf(byte_input_text, "%i", subghz_block_generic_global.btn_length_bit);
@@ -224,6 +253,10 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     btn_byte_count = 1;
     btn_byte_ptr = NULL;
     submenu_called = 0;
+    button_uses_custom_btn = false;
+    button_custom_id = SUBGHZ_CUSTOM_BTN_OK;
+    subghz_block_generic_global_reset(NULL);
+    subghz_custom_btns_reset();
 
     // ### Counter mode section ###
 
@@ -296,7 +329,6 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
 
     // deserialaze and decode loaded sugbhz file and push data to subghz_block_generic_global variable
-    subghz_block_generic_global_reset(NULL);
     if(subghz_protocol_decoder_base_deserialize(decoder, subghz_txrx_get_fff_data(subghz->txrx)) ==
        SubGhzProtocolStatusOk) {
         subghz_protocol_decoder_base_get_string(decoder, tmp_text);
@@ -308,6 +340,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
 
     if(!subghz_block_generic_global.cnt_is_available) {
         counter_mode = 0xff;
+        furi_string_set_str(tmp_text, "-");
         FURI_LOG_D(TAG, "Counter mode and edit not available for this protocol");
     } else {
         counter_not_available = false;
@@ -338,27 +371,42 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     // ### Button edit section ###
 
     if(!subghz_block_generic_global.btn_is_available) {
+        furi_string_set_str(tmp_text, "-");
         FURI_LOG_D(TAG, "Button edit not available for this protocol");
     } else {
         button_not_available = false;
         button = subghz_block_generic_global.current_btn;
-        furi_string_printf(tmp_text, "%X", button);
         btn_byte_ptr = (uint8_t*)&button;
+
+        if(subghz_custom_btn_is_allowed()) {
+            uint8_t max_custom_btn = subghz_custom_btn_get_max();
+            uint8_t button_count = max_custom_btn + 1;
+            if(button_count > BUTTON_VALUE_COUNT) button_count = BUTTON_VALUE_COUNT;
+            button_uses_custom_btn = button_count > 1;
+        }
+
+        if(button_uses_custom_btn) {
+            furi_string_set_str(tmp_text, button_text[0]);
+        } else {
+            furi_string_printf(tmp_text, "%X", button);
+        }
     }
 
-    item = variable_item_list_add(variable_item_list, "Edit Button", 1, NULL, subghz);
+    uint8_t button_count = 1;
+    if(button_uses_custom_btn) {
+        button_count = subghz_custom_btn_get_max() + 1;
+        if(button_count > BUTTON_VALUE_COUNT) button_count = BUTTON_VALUE_COUNT;
+    }
+    item = variable_item_list_add(
+        variable_item_list,
+        button_uses_custom_btn ? "Button" : "Edit Button",
+        button_count,
+        button_uses_custom_btn ? subghz_scene_signal_settings_button_changed : NULL,
+        subghz);
     variable_item_set_current_value_index(item, 0);
     variable_item_set_current_value_text(item, furi_string_get_cstr(tmp_text));
     variable_item_set_locked(item, (button_not_available), "Not available\nfor this\nprotocol !");
     //
-
-    if(!counter_not_available) {
-        furi_assert(cnt_byte_ptr);
-        furi_assert(cnt_byte_count > 0);
-    }
-    if(!button_not_available) {
-        furi_assert(btn_byte_ptr);
-    }
 
     furi_string_free(tmp_text);
 
@@ -370,10 +418,7 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == SubGhzCustomEventByteInputDone) {
-            bool updated = false;
-            int32_t tmp_counter_mult = furi_hal_subghz_get_rolling_counter_mult();
-            furi_hal_subghz_set_rolling_counter_mult(0);
-            subghz_custom_btns_reset();
+            FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
 
             switch(submenu_called) {
             // edit counter
@@ -381,17 +426,17 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
                 switch(cnt_byte_count) {
                 case 2:
                     counter16 = __bswap16(counter16);
+                    subghz_scene_signal_settings_update_uint32_field(fff, "Cnt", counter16);
                     subghz_block_generic_global_counter_override_set(counter16);
-                    subghz_scene_signal_settings_update_field(
-                        subghz_txrx_get_fff_data(subghz->txrx), "Cnt", counter16, cnt_byte_count);
-                    updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
+                    subghz_scene_signal_settings_rebuild_save_reload(
+                        subghz, false, SUBGHZ_CUSTOM_BTN_OK);
                     break;
                 case 4:
                     counter32 = __bswap32(counter32);
+                    subghz_scene_signal_settings_update_uint32_field(fff, "Cnt", counter32);
                     subghz_block_generic_global_counter_override_set(counter32);
-                    subghz_scene_signal_settings_update_field(
-                        subghz_txrx_get_fff_data(subghz->txrx), "Cnt", counter32, cnt_byte_count);
-                    updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
+                    subghz_scene_signal_settings_rebuild_save_reload(
+                        subghz, false, SUBGHZ_CUSTOM_BTN_OK);
                     break;
                 default:
                     break;
@@ -399,21 +444,18 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
                 break;
             // edit button
             case 2:
+                subghz_scene_signal_settings_update_uint32_field(fff, "Btn", button);
                 subghz_block_generic_global_button_override_set(button);
-                subghz_scene_signal_settings_update_field(
-                    subghz_txrx_get_fff_data(subghz->txrx), "Btn", button, btn_byte_count);
-                updated = subghz_scene_signal_settings_rebuild_save_reload(subghz);
+                subghz_scene_signal_settings_rebuild_save_reload(
+                    subghz, false, SUBGHZ_CUSTOM_BTN_OK);
                 break;
 
             default:
                 break;
             }
 
-            furi_hal_subghz_set_rolling_counter_mult(tmp_counter_mult);
-            UNUSED(updated);
             scene_manager_previous_scene(subghz->scene_manager);
             return true;
-
         }
     } else if(event.type == SceneManagerEventTypeBack) {
         scene_manager_previous_scene(subghz->scene_manager);
@@ -433,4 +475,5 @@ void subghz_scene_signal_settings_on_exit(void* context) {
     byte_input_set_result_callback(subghz->byte_input, NULL, NULL, NULL, NULL, 0);
     byte_input_set_header_text(subghz->byte_input, "");
     furi_string_free(byte_input_text);
+    subghz_custom_btns_reset();
 }

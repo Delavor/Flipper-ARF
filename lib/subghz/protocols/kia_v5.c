@@ -327,22 +327,28 @@ SubGhzProtocolStatus
         uint32_t encrypted = (uint32_t)(yek & 0xFFFFFFFF);
         instance->generic.cnt = mixer_decode(encrypted);
 
-        if(!subghz_block_generic_global_counter_override_get(&instance->generic.cnt)) {
-            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-            instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
-        } else {
-            instance->generic.cnt &= 0xFFFF;
-        }
-
-        if(subghz_block_generic_global_button_override_get(&instance->generic.btn)) {
-            instance->generic.btn &= 0x0F;
-        }
-        FURI_LOG_I(TAG, "deserialize #%lu, cnt after=%04lX", call_count, (uint32_t)instance->generic.cnt);
-
         if(subghz_custom_btn_get_original() == 0) {
             subghz_custom_btn_set_original(instance->generic.btn);
         }
         subghz_custom_btn_set_max(4);
+
+        uint32_t override_cnt = 0;
+        if(subghz_block_generic_global_counter_override_get(&override_cnt)) {
+            instance->generic.cnt = override_cnt & 0xFFFF;
+        } else {
+            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
+            instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFF;
+        }
+        FURI_LOG_I(
+            TAG, "deserialize #%lu, cnt after=%04lX", call_count, (uint32_t)instance->generic.cnt);
+
+        uint8_t btn = subghz_custom_btn_get() == SUBGHZ_CUSTOM_BTN_OK ?
+                          subghz_custom_btn_get_original() :
+                          subghz_custom_btn_get();
+        if(subghz_block_generic_global_button_override_get(&btn)) {
+            FURI_LOG_D(TAG, "Button changed to 0x%X", btn);
+        }
+        instance->generic.btn = btn & 0x0F;
 
         instance->generic.data = kia_v5_encode_data(
             instance->generic.serial, instance->generic.cnt, instance->generic.btn);

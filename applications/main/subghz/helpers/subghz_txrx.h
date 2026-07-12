@@ -106,15 +106,11 @@ void subghz_txrx_get_frequency_and_modulation(
 SubGhzTxRxStartTxState subghz_txrx_tx_start(SubGhzTxRx* instance, FlipperFormat* flipper_format);
 
 /**
- * Rebuild protocol-owned fields in a FlipperFormat without starting radio TX.
- *
- * Dynamic protocol encoders update fields such as Key, Cnt, Btn, CRC, etc. from
- * their deserialize step before transmission starts. This helper runs that
- * rebuild path only, then frees the temporary transmitter.
+ * Rebuild protocol data without starting TX.
  *
  * @param instance Pointer to a SubGhzTxRx
  * @param flipper_format Pointer to a FlipperFormat
- * @return bool True if the protocol encoder rebuilt the data
+ * @return bool True when encoder deserialization updated protocol data successfully
  */
 bool subghz_txrx_rebuild_from_fff(SubGhzTxRx* instance, FlipperFormat* flipper_format);
 
