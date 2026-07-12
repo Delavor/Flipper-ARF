@@ -1,5 +1,4 @@
 #include "../subghz_i.h" // IWYU pragma: keep
-#include <lib/subghz/blocks/generic.h>
 
 enum SubmenuIndex {
     SubmenuIndexEmulate,
@@ -10,6 +9,21 @@ enum SubmenuIndex {
     SubmenuIndexCounterBf,                  /* <-- comma was missing here */
     SubmenuIndexCarEmulateSettings,
 };
+
+static bool subghz_scene_saved_menu_has_field(FlipperFormat* fff, const char* key) {
+    uint32_t value = 0;
+    FuriString* value_str = furi_string_alloc();
+
+    flipper_format_rewind(fff);
+    bool has_field = flipper_format_read_uint32(fff, key, &value, 1);
+    if(!has_field) {
+        flipper_format_rewind(fff);
+        has_field = flipper_format_read_string(fff, key, value_str);
+    }
+
+    furi_string_free(value_str);
+    return has_field;
+}
 
 void subghz_scene_saved_menu_submenu_callback(void* context, uint32_t index) {
     SubGhz* subghz = context;
@@ -41,24 +55,14 @@ void subghz_scene_saved_menu_on_enter(void* context) {
     }
 
     if(fff) {
-        SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
-        if(decoder) {
-            flipper_format_rewind(fff);
-            subghz_block_generic_global_reset(NULL);
-            if(subghz_protocol_decoder_base_deserialize(decoder, fff) ==
-               SubGhzProtocolStatusOk) {
-                has_signal_editor = subghz_block_generic_global.cnt_is_available ||
-                                    subghz_block_generic_global.btn_is_available;
-            }
-        }
-    }
-
-    if(fff) {
         uint32_t cnt_tmp = 0;
         flipper_format_rewind(fff);
         if(flipper_format_read_uint32(fff, "Cnt", &cnt_tmp, 1)) {
             has_counter = true;
         }
+
+        has_signal_editor = subghz_scene_saved_menu_has_field(fff, "Cnt") ||
+                            subghz_scene_saved_menu_has_field(fff, "Btn");
     }
 
     if(!is_psa_encrypted) {
@@ -66,6 +70,15 @@ void subghz_scene_saved_menu_on_enter(void* context) {
             subghz->submenu,
             "Emulate",
             SubmenuIndexEmulate,
+            subghz_scene_saved_menu_submenu_callback,
+            subghz);
+    }
+
+    if(has_signal_editor) {
+        submenu_add_item(
+            subghz->submenu,
+            "Signal Editor",
+            SubmenuIndexSignalSettings,
             subghz_scene_saved_menu_submenu_callback,
             subghz);
     }
@@ -99,15 +112,6 @@ void subghz_scene_saved_menu_on_enter(void* context) {
         SubmenuIndexCarEmulateSettings,
         subghz_scene_saved_menu_submenu_callback,
         subghz);
-
-    if(has_signal_editor) {
-        submenu_add_item(
-            subghz->submenu,
-            "Signal Editor",
-            SubmenuIndexSignalSettings,
-            subghz_scene_saved_menu_submenu_callback,
-            subghz);
-    }
 
     if(has_counter) {
         submenu_add_item(
