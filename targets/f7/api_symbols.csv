@@ -1,5 +1,5 @@
 entry,status,name,type,params
-Version,+,89.2,,
+Version,+,89.3,,
 Header,+,applications/drivers/subghz/cc1101_ext/cc1101_ext_interconnect.h,,
 Header,+,applications/services/applications.h,,
 Header,+,applications/services/bt/bt_service/bt.h,,
@@ -3463,6 +3463,7 @@ Function,+,subghz_block_generic_global_reset,void,void*
 Function,+,subghz_block_generic_serialize,SubGhzProtocolStatus,"SubGhzBlockGeneric*, FlipperFormat*, SubGhzRadioPreset*"
 Function,+,subghz_custom_btn_get,uint8_t,
 Function,-,subghz_custom_btn_get_long,_Bool,
+Function,+,subghz_custom_btn_get_max,uint8_t,
 Function,+,subghz_custom_btn_get_max_pages,uint8_t,
 Function,+,subghz_custom_btn_get_original,uint8_t,
 Function,+,subghz_custom_btn_get_page,uint8_t,
