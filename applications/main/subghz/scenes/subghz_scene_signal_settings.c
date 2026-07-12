@@ -55,23 +55,64 @@ static const int32_t counter_mode_value[COUNTER_MODE_COUNT] = {
     7,
 };
 
-static const char* const button_text[] = {
-    "Original",
-    "Up",
-    "Down",
-    "Left",
-    "Right",
-};
-
 static const uint8_t button_value[] = {
     SUBGHZ_CUSTOM_BTN_OK,
     SUBGHZ_CUSTOM_BTN_UP,
     SUBGHZ_CUSTOM_BTN_DOWN,
     SUBGHZ_CUSTOM_BTN_LEFT,
     SUBGHZ_CUSTOM_BTN_RIGHT,
+    5,
+    6,
+    7,
 };
 
 #define BUTTON_VALUE_COUNT (sizeof(button_value) / sizeof(button_value[0]))
+
+static const char* const button_default_labels[BUTTON_VALUE_COUNT] = {
+    "Original",
+    "Up",
+    "Down",
+    "Left",
+    "Right",
+    "Button 5",
+    "Button 6",
+    "Button 7",
+};
+
+static const char* button_labels[BUTTON_VALUE_COUNT] = {
+    "Original",
+    "Up",
+    "Down",
+    "Left",
+    "Right",
+    "Button 5",
+    "Button 6",
+    "Button 7",
+};
+
+typedef struct {
+    const char* protocol;
+    const char* labels[BUTTON_VALUE_COUNT];
+} ProtocolButtonLabels;
+
+static const ProtocolButtonLabels protocol_button_labels[] = {
+    {"VAG GROUP", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"Porsche AG", {"Original", "Lock", "Unlock", "Trunk", "Open"}},
+    {"FORD V0", {"Original", "Lock", "Unlock", "Trunk"}},
+    {"Ford V2", {"Unlock", "Lock", "Trunk", "Panic", "Remote Start"}},
+    {"PSA GROUP", {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
+    {"KIA/HYU V0", {"Original", "Lock", "Unlock", "Trunk", "Horn"}},
+    {"KIA/HYU V1", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"KIA/HYU V2", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"KIA/HYU V3/V4", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
+    {"KIA/HYU V5", {"Original", "Unlock", "Lock", "Trunk", "Horn"}},
+    {"KIA/HYU V6", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"SUBARU", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Extra"}},
+    {"SUZUKI", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"Star Line", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
+    {"Scher-Khan", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
+    {"Sheriff CFM", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+};
 
 typedef struct {
     char* name;
@@ -87,7 +128,39 @@ static Protocols protocols[] = {
     {"Phoenix_V2", 3},
 };
 
-#define PROTOCOLS_COUNT (sizeof(protocols) / sizeof(Protocols));
+#define PROTOCOLS_COUNT (sizeof(protocols) / sizeof(Protocols))
+
+static void subghz_scene_signal_settings_reset_button_labels(void) {
+    for(uint8_t i = 0; i < BUTTON_VALUE_COUNT; i++) {
+        button_labels[i] = button_default_labels[i];
+    }
+}
+
+static void subghz_scene_signal_settings_apply_button_labels(const char* protocol) {
+    for(uint8_t i = 0; i < COUNT_OF(protocol_button_labels); i++) {
+        if(strcmp(protocol, protocol_button_labels[i].protocol) == 0) {
+            for(uint8_t btn = 0; btn < BUTTON_VALUE_COUNT; btn++) {
+                if(protocol_button_labels[i].labels[btn]) {
+                    button_labels[btn] = protocol_button_labels[i].labels[btn];
+                }
+            }
+            break;
+        }
+    }
+}
+
+static const char* subghz_scene_signal_settings_get_button_label(uint8_t custom_btn_id) {
+    if(custom_btn_id == SUBGHZ_CUSTOM_BTN_OK) {
+        uint8_t original = subghz_custom_btn_get_original();
+        if((original != SUBGHZ_CUSTOM_BTN_OK) && (original < BUTTON_VALUE_COUNT)) {
+            return button_labels[original];
+        }
+    }
+    if(custom_btn_id < BUTTON_VALUE_COUNT) {
+        return button_labels[custom_btn_id];
+    }
+    return "Button";
+}
 
 static bool subghz_scene_signal_settings_update_uint32_field(
     FlipperFormat* fff,
@@ -195,8 +268,6 @@ static bool subghz_scene_signal_settings_rebuild_save_reload(
 
     if(use_custom_btn) {
         subghz_custom_btn_set(custom_btn_id);
-    } else {
-        subghz_custom_btns_reset();
     }
 
     do {
@@ -265,8 +336,9 @@ void subghz_scene_signal_settings_button_changed(VariableItem* item) {
     uint8_t index = variable_item_get_current_value_index(item);
     if(index >= BUTTON_VALUE_COUNT) index = 0;
 
-    variable_item_set_current_value_text(item, button_text[index]);
     button_custom_id = button_value[index];
+    variable_item_set_current_value_text(
+        item, subghz_scene_signal_settings_get_button_label(button_custom_id));
 
     if(!button_uses_custom_btn) return;
 
@@ -343,6 +415,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     button_custom_id = SUBGHZ_CUSTOM_BTN_OK;
     subghz_block_generic_global_reset(NULL);
     subghz_custom_btns_reset();
+    subghz_scene_signal_settings_reset_button_labels();
 
     // ### Counter mode section ###
 
@@ -356,6 +429,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     FlipperFormat* fff_data_file = flipper_format_file_alloc(storage);
     FuriString* tmp_text = furi_string_alloc_set_str("");
+    FuriString* protocol_name = furi_string_alloc();
 
     uint32_t tmp_counter_mode = 0;
     counter_mode = 0xff;
@@ -368,8 +442,9 @@ void subghz_scene_signal_settings_on_enter(void* context) {
         FURI_LOG_E(TAG, "Error open file %s", file_path);
     } else {
         flipper_format_read_string(fff_data_file, "Protocol", tmp_text);
+        furi_string_set(protocol_name, tmp_text);
         // compare available protocols names, load CounterMode value from file and setup variable_item_list values_count
-        for(uint8_t i = 0; i < PROTOCOLS_COUNT i++) {
+        for(uint8_t i = 0; i < PROTOCOLS_COUNT; i++) {
             if(!strcmp(furi_string_get_cstr(tmp_text), protocols[i].name)) {
                 mode_count = protocols[i].mode_count;
                 if(flipper_format_read_uint32(fff_data_file, "CounterMode", &tmp_counter_mode, 1)) {
@@ -417,6 +492,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     // deserialaze and decode loaded sugbhz file and push data to subghz_block_generic_global variable
     if(subghz_protocol_decoder_base_deserialize(decoder, subghz_txrx_get_fff_data(subghz->txrx)) ==
        SubGhzProtocolStatusOk) {
+        subghz_scene_signal_settings_apply_button_labels(furi_string_get_cstr(protocol_name));
         subghz_protocol_decoder_base_get_string(decoder, tmp_text);
         subghz_scene_signal_settings_apply_text_fallback(tmp_text);
         subghz_scene_signal_settings_apply_file_fallback(subghz_txrx_get_fff_data(subghz->txrx));
@@ -458,26 +534,25 @@ void subghz_scene_signal_settings_on_enter(void* context) {
 
     // ### Button edit section ###
 
-    if(!subghz_block_generic_global.btn_is_available) {
+    if(subghz_custom_btn_is_allowed()) {
+        uint8_t max_custom_btn = subghz_custom_btn_get_max();
+        uint8_t custom_button_count = max_custom_btn + 1;
+        if(custom_button_count > BUTTON_VALUE_COUNT) custom_button_count = BUTTON_VALUE_COUNT;
+        button_uses_custom_btn = custom_button_count > 1;
+    }
+
+    if(button_uses_custom_btn) {
+        button_not_available = false;
+        furi_string_set_str(
+            tmp_text, subghz_scene_signal_settings_get_button_label(SUBGHZ_CUSTOM_BTN_OK));
+    } else if(!subghz_block_generic_global.btn_is_available) {
         furi_string_set_str(tmp_text, "-");
         FURI_LOG_D(TAG, "Button edit not available for this protocol");
     } else {
         button_not_available = false;
         button = subghz_block_generic_global.current_btn;
         btn_byte_ptr = (uint8_t*)&button;
-
-        if(subghz_custom_btn_is_allowed()) {
-            uint8_t max_custom_btn = subghz_custom_btn_get_max();
-            uint8_t button_count = max_custom_btn + 1;
-            if(button_count > BUTTON_VALUE_COUNT) button_count = BUTTON_VALUE_COUNT;
-            button_uses_custom_btn = button_count > 1;
-        }
-
-        if(button_uses_custom_btn) {
-            furi_string_set_str(tmp_text, button_text[0]);
-        } else {
-            furi_string_printf(tmp_text, "%X", button);
-        }
+        furi_string_printf(tmp_text, "%X", button);
     }
 
     uint8_t button_count = 1;
@@ -497,6 +572,7 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     //
 
     furi_string_free(tmp_text);
+    furi_string_free(protocol_name);
 
     view_dispatcher_switch_to_view(subghz->view_dispatcher, SubGhzViewIdVariableItemList);
 }

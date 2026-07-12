@@ -609,10 +609,16 @@ SubGhzProtocolStatus subghz_protocol_encoder_subaru_deserialize(void* context, F
         }
         
         uint8_t new_button = subaru_get_button_code(selected_custom_btn);
+        subghz_block_generic_global_button_override_get(&new_button);
         instance->button = new_button;
         
-        uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-        instance->count = (instance->count + mult) & 0xFFFF;
+        uint32_t override_cnt = 0;
+        if(subghz_block_generic_global_counter_override_get(&override_cnt)) {
+            instance->count = override_cnt & 0xFFFF;
+        } else {
+            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
+            instance->count = (instance->count + mult) & 0xFFFF;
+        }
         
         b[0] = (b[0] & 0xF0) | (instance->button & 0x0F);
         
@@ -643,6 +649,13 @@ SubGhzProtocolStatus subghz_protocol_encoder_subaru_deserialize(void* context, F
             ret = SubGhzProtocolStatusErrorParserKey;
             break;
         }
+
+        uint32_t temp_btn = instance->generic.btn;
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Btn", &temp_btn, 1);
+
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Cnt", &instance->generic.cnt, 1);
         
         instance->encoder.is_running = true;
         ret = SubGhzProtocolStatusOk;

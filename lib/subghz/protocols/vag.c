@@ -1443,12 +1443,18 @@ SubGhzProtocolStatus
         }
         
         uint8_t new_btn = vag_custom_to_btn(selected_custom, instance->btn);
+        subghz_block_generic_global_button_override_get(&new_btn);
         instance->btn = new_btn;
         
         
         
-        uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-        instance->cnt = (instance->cnt + mult) & 0xFFFFFF;
+        uint32_t override_cnt = 0;
+        if(subghz_block_generic_global_counter_override_get(&override_cnt)) {
+            instance->cnt = override_cnt & 0xFFFFFF;
+        } else {
+            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
+            instance->cnt = (instance->cnt + mult) & 0xFFFFFF;
+        }
 
         uint8_t type_byte = (uint8_t)(instance->key1_high >> 24);
         if(instance->vag_type == 1 && type_byte == 0x00) {
@@ -1518,6 +1524,12 @@ SubGhzProtocolStatus
             flipper_format_insert_or_update_uint32(flipper_format, "Type", &type32, 1);
         }
 
+        uint32_t btn32 = instance->btn;
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Btn", &btn32, 1);
+
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Cnt", &instance->cnt, 1);
         
 
         instance->repeat = 1;  

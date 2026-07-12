@@ -400,13 +400,19 @@ SubGhzProtocolStatus subghz_protocol_encoder_suzuki_deserialize(void *context, F
         }
         subghz_custom_btn_set_max(4);
 
-        uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
-        instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFFF;
+        uint32_t override_cnt = 0;
+        if(subghz_block_generic_global_counter_override_get(&override_cnt)) {
+            instance->generic.cnt = override_cnt & 0xFFFFF;
+        } else {
+            uint32_t mult = furi_hal_subghz_get_rolling_counter_mult();
+            instance->generic.cnt = (instance->generic.cnt + mult) & 0xFFFFF;
+        }
 
         uint8_t selected = subghz_custom_btn_get() == SUBGHZ_CUSTOM_BTN_OK ?
                           subghz_custom_btn_get_original() :
                           subghz_custom_btn_get();
         uint8_t btn = suzuki_custom_to_btn(selected);
+        subghz_block_generic_global_button_override_get(&btn);
         instance->generic.btn = btn;
 
         uint64_t new_data = 0;
@@ -433,6 +439,13 @@ SubGhzProtocolStatus subghz_protocol_encoder_suzuki_deserialize(void *context, F
             ret = SubGhzProtocolStatusErrorParserKey;
             break;
         }
+
+        uint32_t temp_btn = instance->generic.btn;
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Btn", &temp_btn, 1);
+
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Cnt", &instance->generic.cnt, 1);
 
         size_t preamble_count = SUZUKI_ENCODER_PREAMBLE_COUNT;
         size_t bit_count = 64;

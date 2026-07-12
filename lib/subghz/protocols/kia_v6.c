@@ -717,8 +717,10 @@ SubGhzProtocolStatus subghz_protocol_encoder_kia_v6_deserialize(void* context, F
         }
         subghz_custom_btn_set_max(4);
 
-        // Incrementa cnt
-        if(instance->generic.cnt < 0xFFFFFFFF) {
+        uint32_t override_cnt = 0;
+        if(subghz_block_generic_global_counter_override_get(&override_cnt)) {
+            instance->generic.cnt = override_cnt;
+        } else if(instance->generic.cnt < 0xFFFFFFFF) {
             if((instance->generic.cnt + furi_hal_subghz_get_rolling_counter_mult()) > 0xFFFFFFFF) {
                 instance->generic.cnt = 0;
             } else {
@@ -728,11 +730,15 @@ SubGhzProtocolStatus subghz_protocol_encoder_kia_v6_deserialize(void* context, F
             instance->generic.cnt = 0;
         }
 
-        // Risolvi btn dal tasto premuto (identico a Suzuki)
-        instance->generic.btn = kia_v6_custom_to_btn(
-            subghz_custom_btn_get() == SUBGHZ_CUSTOM_BTN_OK
-                ? subghz_custom_btn_get_original()
-                : subghz_custom_btn_get());
+        uint8_t override_btn = 0;
+        if(subghz_block_generic_global_button_override_get(&override_btn)) {
+            instance->generic.btn = override_btn & 0x0F;
+        } else {
+            instance->generic.btn = kia_v6_custom_to_btn(
+                subghz_custom_btn_get() == SUBGHZ_CUSTOM_BTN_OK
+                    ? subghz_custom_btn_get_original()
+                    : subghz_custom_btn_get());
+        }
 
         kia_v6_encoder_build_upload(instance);
 
@@ -765,6 +771,13 @@ SubGhzProtocolStatus subghz_protocol_encoder_kia_v6_deserialize(void* context, F
         flipper_format_update_uint32(flipper_format, "Key_3", &file_part2_high, 1);
         uint32_t file_key3 = file_part3;
         flipper_format_update_uint32(flipper_format, "Key_4", &file_key3, 1);
+
+        uint32_t btn_to_write = instance->generic.btn;
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Btn", &btn_to_write, 1);
+
+        flipper_format_rewind(flipper_format);
+        flipper_format_insert_or_update_uint32(flipper_format, "Cnt", &instance->generic.cnt, 1);
 
         instance->encoder.is_running = true;
         ret = SubGhzProtocolStatusOk;
