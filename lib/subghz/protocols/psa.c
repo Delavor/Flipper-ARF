@@ -1932,7 +1932,7 @@ LevelDuration subghz_protocol_encoder_psa_yield(void* context) {
     instance->encoder.front++;
     if(instance->encoder.front >= instance->encoder.size_upload) {
         instance->encoder.front = 0;
-        instance->encoder.repeat--;
+        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
         if(instance->encoder.repeat <= 0) instance->is_running = false;
     }
     return ret;

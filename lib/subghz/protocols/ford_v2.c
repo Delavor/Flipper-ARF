@@ -615,7 +615,7 @@ LevelDuration subghz_protocol_encoder_ford_v2_yield(void* context) {
 
     if(++instance->encoder.front == instance->encoder.size_upload) {
         instance->encoder.front = 0U;
-        instance->encoder.repeat--;
+        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
     }
 
     return ret;

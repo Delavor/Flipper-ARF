@@ -648,7 +648,7 @@ LevelDuration subghz_protocol_encoder_kia_v3_v4_yield(void* context) {
         instance->crc_iter = (uint8_t)((instance->crc_iter + 1U) & 0x0FU);
         subghz_protocol_encoder_kia_v3_v4_patch_crc(instance);
         instance->encoder.front = 0;
-        instance->encoder.repeat--;
+        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
         if(instance->bursts_sent < 16U) {
             instance->bursts_sent++;
         }

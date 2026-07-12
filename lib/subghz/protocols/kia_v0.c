@@ -154,7 +154,7 @@ LevelDuration subghz_protocol_encoder_kia_yield(void* context) {
 
     LevelDuration ret = instance->encoder.upload[instance->encoder.front];
     if(++instance->encoder.front == instance->encoder.size_upload) {
-        instance->encoder.repeat--;
+        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
         instance->encoder.front = 0;
     }
 
@@ -594,4 +594,3 @@ void subghz_protocol_decoder_kia_get_string(void* context, FuriString* output) {
         received_crc,
         crc_valid ? "(OK)" : "(FAIL)");
 }
-
