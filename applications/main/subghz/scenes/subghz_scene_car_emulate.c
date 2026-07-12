@@ -34,7 +34,7 @@ typedef struct {
     bool     stop_pending;      /* stop requested before MIN_TX_TICKS elapsed */
     uint32_t tx_start_tick;
 
-    /* Pending button key (InputKey) decoded from the packed custom event */
+    /* Resolved custom button repeated while the physical key is held */
     uint8_t  pending_button;
 } CarEmulateState;
 
@@ -252,10 +252,32 @@ static bool car_emulate_start_tx(SubGhz* subghz, uint8_t custom_btn_id) {
 
 /** Stop an active transmission. */
 static void car_emulate_stop_tx(SubGhz* subghz) {
+    subghz_block_generic_global.endless_tx = false;
     subghz_txrx_stop(subghz->txrx);
     subghz->state_notifications = SubGhzNotificationStateIDLE;
     notification_message(subghz->notifications, &sequence_blink_stop);
     FURI_LOG_I(TAG, "TX stopped");
+}
+
+static bool car_emulate_restart_tx(SubGhz* subghz) {
+    furi_assert(s_state);
+
+    car_emulate_update_fff(subghz, s_state->current_counter);
+    subghz_block_generic_global.endless_tx = true;
+
+    if(car_emulate_start_tx(subghz, s_state->pending_button)) {
+        s_state->is_transmitting = true;
+        subghz->state_notifications = SubGhzNotificationStateTx;
+        notification_message(subghz->notifications, &sequence_blink_magenta_10);
+        FURI_LOG_D(TAG, "TX restarted while button is held");
+        return true;
+    }
+
+    subghz_block_generic_global.endless_tx = false;
+    s_state->is_transmitting = false;
+    s_state->stop_pending = false;
+    notification_message(subghz->notifications, &sequence_error);
+    return false;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -293,6 +315,7 @@ void subghz_scene_car_emulate_on_enter(void* context) {
     s_state = malloc(sizeof(CarEmulateState));
     furi_check(s_state);
     memset(s_state, 0, sizeof(CarEmulateState));
+    subghz_block_generic_global.endless_tx = false;
 
     /* ── Read metadata from the loaded fff_data ── */
     FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
@@ -401,8 +424,11 @@ bool subghz_scene_car_emulate_on_event(void* context, SceneManagerEvent event) {
             s_state->tx_start_tick   = (uint32_t)furi_get_tick();
 
             uint8_t cur_btn = subghz_custom_btn_get();
+            s_state->pending_button = cur_btn;
+            subghz_block_generic_global.endless_tx = true;
             if(!car_emulate_start_tx(subghz, cur_btn)) {
                 s_state->is_transmitting = false;
+                subghz_block_generic_global.endless_tx = false;
                 notification_message(subghz->notifications, &sequence_error);
             }
 
@@ -411,11 +437,13 @@ bool subghz_scene_car_emulate_on_event(void* context, SceneManagerEvent event) {
 
         /* ── Stop ── */
         } else if(event.event == SubGhzCustomEventCarEmulateStop) {
-            if(s_state->is_transmitting &&
-               subghz->state_notifications == SubGhzNotificationStateTx) {
+            if(s_state->is_transmitting) {
+                subghz_block_generic_global.endless_tx = false;
 
                 uint32_t elapsed = (uint32_t)furi_get_tick() - s_state->tx_start_tick;
-                if(elapsed >= MIN_TX_TICKS) {
+                if(
+                    elapsed >= MIN_TX_TICKS &&
+                    subghz->state_notifications == SubGhzNotificationStateTx) {
                     car_emulate_stop_tx(subghz);
                     s_state->is_transmitting = false;
                     s_state->stop_pending    = false;
@@ -431,6 +459,7 @@ bool subghz_scene_car_emulate_on_event(void* context, SceneManagerEvent event) {
             if(subghz->state_notifications == SubGhzNotificationStateTx) {
                 car_emulate_stop_tx(subghz);
             }
+            subghz_block_generic_global.endless_tx = false;
             scene_manager_search_and_switch_to_previous_scene(
                 subghz->scene_manager, SubGhzSceneSavedMenu);
             consumed = true;
@@ -450,6 +479,8 @@ bool subghz_scene_car_emulate_on_event(void* context, SceneManagerEvent event) {
                     s_state->is_transmitting = false;
                     s_state->stop_pending    = false;
                     notification_message(subghz->notifications, &sequence_blink_stop);
+                } else {
+                    car_emulate_restart_tx(subghz);
                 }
             } else {
                 /* Still transmitting – blink LED */
@@ -485,6 +516,7 @@ void subghz_scene_car_emulate_on_exit(void* context) {
         car_emulate_stop_tx(subghz);
     }
 
+    subghz_block_generic_global.endless_tx = false;
     subghz->state_notifications = SubGhzNotificationStateIDLE;
     notification_message(subghz->notifications, &sequence_blink_stop);
 
