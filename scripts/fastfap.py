@@ -3,6 +3,7 @@ import hashlib
 import os
 import struct
 import subprocess
+import shutil
 import tempfile
 import time
 from collections import defaultdict
@@ -26,6 +27,10 @@ def replace_file_with_retry(source: str, target: str, attempts: int = 50) -> Non
             if attempt == attempts - 1:
                 raise
             time.sleep(0.1)
+        except OSError:
+            shutil.copy2(source, target)
+            os.remove(source)
+            return
 
 
 @dataclass
@@ -147,7 +152,7 @@ class Main(App):
                     RelSection(section_name, section.name, unique_relocations)
                 )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(fap_path))) as temp_dir:
             current_fap_path = fap_path
 
             for section_index, section in enumerate(sections):
