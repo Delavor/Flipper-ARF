@@ -262,12 +262,13 @@ void CPU::opcode_dec(Address&& addr) {
 /* DI */
 void CPU::opcode_di() {
     interrupts_enabled = false;
+    ime_pending = false; /* DI in the EI delay slot cancels the enable */
 }
 
 
-/* EI */
+/* EI: IME is enabled after the NEXT instruction (see CPU::tick) */
 void CPU::opcode_ei() {
-    interrupts_enabled = true;
+    ime_pending = true;
 }
 
 
@@ -543,10 +544,10 @@ void CPU::opcode_ret(Condition condition) {
 }
 
 
-/* RETI */
+/* RETI: unlike EI, re-enables IME immediately (no delay slot) */
 void CPU::opcode_reti() {
     opcode_ret();
-    opcode_ei();
+    interrupts_enabled = true;
 }
 
 
@@ -810,9 +811,17 @@ void CPU::opcode_srl(Address&& addr) {
 }
 
 
-/* STOP */
+/* STOP: on real DMG the CPU freezes until a joypad LINE CHANGE -- this is
+ * independent of IE/IF/IME (it does not go through interrupt dispatch).
+ * Modelling it as plain HALT was wrong twice over: with IE bit4 clear a
+ * press never satisfied IF&IE so the game froze forever, and with IE
+ * bit0 set our free-running PPU vblank woke it instantly. The `stopped`
+ * flag is cleared only by CPU::notify_joypad() (wired to button presses).
+ * STOP is also a 2-byte instruction: consume the padding byte. */
 void CPU::opcode_stop() {
-    /* halted = true; */
+    get_byte_from_pc(); /* skip the 0x00 pad */
+    halted = true;
+    stopped = true;
 }
 
 

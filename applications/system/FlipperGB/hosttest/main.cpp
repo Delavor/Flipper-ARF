@@ -3,7 +3,7 @@
  * Usage: hosttest <rom.gb> [max_frames] [--dump-frame N]
  */
 
-#include "../gb/gameboy.h"
+#include "../lib/gbcore/gameboy.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,9 +29,9 @@ static void serial_hook(u8 byte) {
     }
 }
 
-static const u8* bank_provider(void* /*ctx*/, uint bank) {
-    long offset = static_cast<long>(bank) * 0x4000;
-    if(offset + 0x4000 > g_rom_size) offset = 0;
+static const u8* bank_provider(void* /*ctx*/, uint page) {
+    long offset = static_cast<long>(page) * 0x2000; /* 8 KB ROM pages */
+    if(offset + 0x2000 > g_rom_size) offset = 0;
     return g_rom + offset;
 }
 
@@ -98,10 +98,12 @@ int main(int argc, char** argv) {
     bool dump = false;
     bool rowmask = false;
     bool dump_audio = false;
+    bool skiprender = false;
     for(int i = 1; i < argc; i++) {
         if(!strcmp(argv[i], "--dump-frame")) dump = true;
         if(!strcmp(argv[i], "--rowmask")) rowmask = true;
         if(!strcmp(argv[i], "--dump-audio")) dump_audio = true;
+        if(!strcmp(argv[i], "--skiprender")) skiprender = true;
     }
 
     /* Same 144 -> 64 line subsampling the Flipper frontend uses */
@@ -146,6 +148,7 @@ int main(int argc, char** argv) {
     auto* gb = new Gameboy(g_rom, banks, mbc, cart_ram, ram_size, bank_provider, nullptr);
     gb->set_frame_callback(frame_hook, gb);
     if(rowmask) gb->set_row_mask(mask);
+    if(skiprender) gb->set_skip_render(true);
 
     u32 last_freq = 0;
     int last_ch = -1;

@@ -105,27 +105,10 @@ static void subghz_scene_add_to_history_callback(
     SubGhz* subghz = context;
 
     // The check can be moved to /lib/subghz/receiver.c, but may result in false positives
-    /* Protocol name allowlist filter — if non-empty, drop anything not in the list */
-    if(subghz->last_settings->protocol_filter[0] != '\0') {
-        const char* proto_name = decoder_base->protocol->name;
-        const char* filter = subghz->last_settings->protocol_filter;
-        bool allowed = false;
-        /* Walk the comma-separated list */
-        const char* p = filter;
-        while(*p) {
-            const char* comma = strchr(p, ',');
-            size_t len = comma ? (size_t)(comma - p) : strlen(p);
-            if(len == strlen(proto_name) && strncmp(p, proto_name, len) == 0) {
-                allowed = true;
-                break;
-            }
-            if(!comma) break;
-            p = comma + 1;
-        }
-        if(!allowed) {
-            FURI_LOG_D(TAG, "%s filtered by allowlist", proto_name);
-            return;
-        }
+    if(subghz_last_settings_protocol_filter_contains(
+           subghz->last_settings, decoder_base->protocol->name)) {
+        FURI_LOG_D(TAG, "%s filtered by protocol OFF list", decoder_base->protocol->name);
+        return;
     }
 
     if((decoder_base->protocol->flag & subghz->ignore_filter) == 0) {

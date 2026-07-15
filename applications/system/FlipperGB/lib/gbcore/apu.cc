@@ -1,15 +1,9 @@
 #include "apu.h"
 
-/* One frame-sequencer step every 2048 M-cycles (8192 T-cycles = 512 Hz),
- * in the same M-cycle domain the CPU/PPU/timer now share. */
-static const uint FRAME_SEQ_PERIOD = 2048;
-
-void Apu::tick(uint cycles) {
-    if(!power) return;
-
-    seq_counter += cycles;
-    while(seq_counter >= FRAME_SEQ_PERIOD) {
-        seq_counter -= FRAME_SEQ_PERIOD;
+/* Slow path of Apu::tick (see apu.h): runs the due frame-sequencer steps */
+void Apu::seq_run() {
+    while(seq_counter >= 2048) {
+        seq_counter -= 2048;
         seq_step = (u8)((seq_step + 1) & 7);
 
         if((seq_step & 1) == 0) clock_lengths(); /* 256 Hz */

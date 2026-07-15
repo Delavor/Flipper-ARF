@@ -72,10 +72,22 @@ private:
     void write_scanline(u8 current_line);
     void write_sprites();
     void draw();
+    void mode_transition_vram_end();
+    void mode_transition_hblank_end();
+    void mode_transition_vblank_line();
     void draw_bg_line(uint current_line);
     void draw_window_line(uint current_line);
     void draw_sprite(uint sprite_n);
-    static auto get_pixel_from_line(u8 byte1, u8 byte2, u8 pixel_index) -> u8;
+    void render_strip(
+        u8* dst_row,
+        uint dst_x,
+        uint count,
+        uint map_row_base,
+        uint src_px,
+        uint tile_line_off,
+        bool use_tile_set_zero,
+        const u8* pal_lut);
+    auto bg_pal_lut() -> const u8*;
 
     static auto is_on_screen(int x, int y) -> bool {
         return x >= 0 && y >= 0 && x < static_cast<int>(GAMEBOY_WIDTH) &&
@@ -91,12 +103,14 @@ private:
     auto sprites_enabled() const -> bool;
     auto bg_enabled() const -> bool;
 
-    static auto load_palette(const ByteRegister& palette_register) -> Palette;
-    static auto get_shade_from_palette(u8 color, const Palette& palette) -> Shade;
-
     Gameboy& gb;
 
     FrameBuffer buffer;
+
+    /* packed-byte -> palette-mapped-byte LUT for the current BGP value */
+    u8 bgp_lut[256];
+    u8 bgp_lut_cached_for = 0;
+    bool bgp_lut_valid = false;
 
     u8 video_ram[0x2000] = {}; /* DMG: 8 KB (was 16 KB upstream) */
 

@@ -679,15 +679,13 @@ void subghz_scene_receiver_config_on_enter(void* context) {
             1,
             NULL,
             subghz);
-        if(subghz->last_settings->protocol_filter[0] == '\0') {
-            variable_item_set_current_value_text(item, "All");
+        uint8_t protocol_filter_count =
+            subghz_last_settings_protocol_filter_count(subghz->last_settings);
+        if(protocol_filter_count == 0) {
+            variable_item_set_current_value_text(item, "All ON");
         } else {
-            uint8_t count = 1;
-            for(const char* p = subghz->last_settings->protocol_filter; *p; p++) {
-                if(*p == ',') count++;
-            }
             static char filter_count_str[8];
-            snprintf(filter_count_str, sizeof(filter_count_str), "%u set", count);
+            snprintf(filter_count_str, sizeof(filter_count_str), "%u OFF", protocol_filter_count);
             variable_item_set_current_value_text(item, filter_count_str);
         }
 

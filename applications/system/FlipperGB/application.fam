@@ -3,10 +3,21 @@ App(
     name="FlipGB",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="flipgb_app",
-    sources=["*.c*", "!hosttest"],
+    sources=["*.c*", "!hosttest", "!lib"],
     requires=["gui", "dialogs", "storage"],
     stack_size=8 * 1024,
     cdefines=[("GB_FB_ROWS", "64")],
+    fap_private_libs=[
+        Lib(
+            # The emulator core is built as a private lib so it can use -O2:
+            # ufbt builds FAP sources with -Os, which costs ~30% emulation
+            # speed in the per-instruction hot path. Code size difference
+            # is ~6 KB - well worth it.
+            name="gbcore",
+            cflags=["-O2"],
+            cdefines=[("GB_FB_ROWS", "64")],
+        ),
+    ],
     fap_category="Games",
     fap_icon="flipgb_icon.png",
     fap_author="user",
