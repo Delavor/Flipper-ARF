@@ -7,6 +7,7 @@
 #include <lib/subghz/blocks/generic.h>
 #include <lib/subghz/blocks/custom_btn_i.h>
 #include <string.h>
+#include <stdio.h>
 
 #define TAG "SubGhzSceneSignalSettings"
 
@@ -15,6 +16,8 @@ static uint32_t counter32 = 0x0;
 static uint16_t counter16 = 0x0;
 static uint8_t cnt_byte_count = 0;
 static uint8_t* cnt_byte_ptr = NULL;
+static uint32_t counter_value = 0;
+static uint32_t counter_mask = 0xffffffffUL;
 
 static FuriString* byte_input_text;
 
@@ -26,10 +29,22 @@ static uint8_t submenu_called = 0;
 static bool button_uses_custom_btn = false;
 static uint8_t button_custom_id = SUBGHZ_CUSTOM_BTN_OK;
 
+static bool subghz_scene_signal_settings_rebuild_save_reload(
+    SubGhz* subghz,
+    bool use_custom_btn,
+    uint8_t custom_btn_id);
+
 enum {
     SignalSettingsIndexCounterMode,
     SignalSettingsIndexCounter,
     SignalSettingsIndexButton,
+};
+
+enum {
+    SignalSettingsCounterStepDown,
+    SignalSettingsCounterStepValue,
+    SignalSettingsCounterStepUp,
+    SignalSettingsCounterStepCount,
 };
 
 #define COUNTER_MODE_COUNT 8
@@ -168,6 +183,60 @@ static bool subghz_scene_signal_settings_update_uint32_field(
     uint32_t value) {
     flipper_format_rewind(fff);
     return flipper_format_insert_or_update_uint32(fff, key, &value, 1);
+}
+
+static uint32_t subghz_scene_signal_settings_counter_get_mask(void) {
+    uint8_t bits = subghz_block_generic_global.cnt_length_bit;
+    if((bits == 0) || (bits >= 32)) {
+        return 0xffffffffUL;
+    }
+    return (1UL << bits) - 1UL;
+}
+
+static void subghz_scene_signal_settings_counter_sync_byte_input(void) {
+    if(cnt_byte_count == 4) {
+        counter32 = __bswap32(counter_value);
+        cnt_byte_ptr = (uint8_t*)&counter32;
+    } else if(cnt_byte_count == 2) {
+        counter16 = __bswap16((uint16_t)counter_value);
+        cnt_byte_ptr = (uint8_t*)&counter16;
+    }
+}
+
+static void subghz_scene_signal_settings_counter_set_value(uint32_t value) {
+    counter_value = value & counter_mask;
+    subghz_scene_signal_settings_counter_sync_byte_input();
+}
+
+static void subghz_scene_signal_settings_counter_format(FuriString* text) {
+    if(cnt_byte_count == 4) {
+        furi_string_printf(text, "%lX", (unsigned long)counter_value);
+    } else {
+        furi_string_printf(text, "%X", (unsigned int)(counter_value & 0xffffU));
+    }
+}
+
+static void subghz_scene_signal_settings_counter_update_item(VariableItem* item) {
+    char text[9] = {0};
+    variable_item_set_current_value_index(item, SignalSettingsCounterStepValue);
+    if(cnt_byte_count == 4) {
+        snprintf(text, sizeof(text), "%lX", (unsigned long)counter_value);
+    } else {
+        snprintf(text, sizeof(text), "%X", (unsigned int)(counter_value & 0xffffU));
+    }
+    variable_item_set_current_value_text(item, text);
+}
+
+static bool subghz_scene_signal_settings_counter_save(SubGhz* subghz) {
+    FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
+    if(!subghz_scene_signal_settings_update_uint32_field(fff, "Cnt", counter_value)) {
+        FURI_LOG_E(TAG, "Error update/insert Cnt value");
+        dialog_message_show_storage_error(subghz->dialogs, "Cannot save\ncounter");
+        return false;
+    }
+
+    subghz_block_generic_global_counter_override_set(counter_value);
+    return subghz_scene_signal_settings_rebuild_save_reload(subghz, false, SUBGHZ_CUSTOM_BTN_OK);
 }
 
 static bool subghz_scene_signal_settings_hex_digit(char c, uint8_t* value) {
@@ -332,6 +401,28 @@ void subghz_scene_signal_settings_counter_mode_changed(VariableItem* item) {
     }
 }
 
+void subghz_scene_signal_settings_counter_changed(VariableItem* item) {
+    if(!cnt_byte_ptr || cnt_byte_count == 0) return;
+
+    uint8_t index = variable_item_get_current_value_index(item);
+    if(index == SignalSettingsCounterStepValue) {
+        subghz_scene_signal_settings_counter_update_item(item);
+        return;
+    }
+
+    if(index == SignalSettingsCounterStepUp) {
+        subghz_scene_signal_settings_counter_set_value(counter_value + 1);
+    } else {
+        subghz_scene_signal_settings_counter_set_value(counter_value - 1);
+    }
+
+    subghz_scene_signal_settings_counter_update_item(item);
+
+    SubGhz* subghz = variable_item_get_context(item);
+    furi_assert(subghz);
+    subghz_scene_signal_settings_counter_save(subghz);
+}
+
 void subghz_scene_signal_settings_button_changed(VariableItem* item) {
     uint8_t index = variable_item_get_current_value_index(item);
     if(index >= BUTTON_VALUE_COUNT) index = 0;
@@ -407,6 +498,8 @@ void subghz_scene_signal_settings_on_enter(void* context) {
     counter16 = 0;
     cnt_byte_count = 0;
     cnt_byte_ptr = NULL;
+    counter_value = 0;
+    counter_mask = 0xffffffffUL;
     button = 0;
     btn_byte_count = 1;
     btn_byte_ptr = NULL;
@@ -508,26 +601,26 @@ void subghz_scene_signal_settings_on_enter(void* context) {
         FURI_LOG_D(TAG, "Counter mode and edit not available for this protocol");
     } else {
         counter_not_available = false;
+        counter_mask = subghz_scene_signal_settings_counter_get_mask();
 
-        // Check is there byte_count more than 2 hex bytes long or not
-        // To show hex value we must correct revert bytes for ByteInput view with __bswapХХ
+        // ByteInput stores the visible hex value as big-endian bytes.
         if(subghz_block_generic_global.cnt_length_bit > 16) {
-            counter32 = subghz_block_generic_global.current_cnt;
-            furi_string_printf(tmp_text, "%lX", counter32);
-            counter32 = __bswap32(counter32);
-            cnt_byte_ptr = (uint8_t*)&counter32;
             cnt_byte_count = 4;
         } else {
-            counter16 = subghz_block_generic_global.current_cnt;
-            furi_string_printf(tmp_text, "%X", counter16);
-            counter16 = __bswap16(counter16);
-            cnt_byte_ptr = (uint8_t*)&counter16;
             cnt_byte_count = 2;
         }
+        subghz_scene_signal_settings_counter_set_value(subghz_block_generic_global.current_cnt);
+        subghz_scene_signal_settings_counter_format(tmp_text);
     }
 
-    item = variable_item_list_add(variable_item_list, "Edit Counter", 1, NULL, subghz);
-    variable_item_set_current_value_index(item, 0);
+    item = variable_item_list_add(
+        variable_item_list,
+        "Edit Counter",
+        counter_not_available ? 1 : SignalSettingsCounterStepCount,
+        counter_not_available ? NULL : subghz_scene_signal_settings_counter_changed,
+        subghz);
+    variable_item_set_current_value_index(
+        item, counter_not_available ? 0 : SignalSettingsCounterStepValue);
     variable_item_set_current_value_text(item, furi_string_get_cstr(tmp_text));
     variable_item_set_locked(item, (counter_not_available), "Not available\nfor this\nprotocol !");
     //
@@ -590,17 +683,13 @@ bool subghz_scene_signal_settings_on_event(void* context, SceneManagerEvent even
                 switch(cnt_byte_count) {
                 case 2:
                     counter16 = __bswap16(counter16);
-                    subghz_scene_signal_settings_update_uint32_field(fff, "Cnt", counter16);
-                    subghz_block_generic_global_counter_override_set(counter16);
-                    subghz_scene_signal_settings_rebuild_save_reload(
-                        subghz, false, SUBGHZ_CUSTOM_BTN_OK);
+                    subghz_scene_signal_settings_counter_set_value(counter16);
+                    subghz_scene_signal_settings_counter_save(subghz);
                     break;
                 case 4:
                     counter32 = __bswap32(counter32);
-                    subghz_scene_signal_settings_update_uint32_field(fff, "Cnt", counter32);
-                    subghz_block_generic_global_counter_override_set(counter32);
-                    subghz_scene_signal_settings_rebuild_save_reload(
-                        subghz, false, SUBGHZ_CUSTOM_BTN_OK);
+                    subghz_scene_signal_settings_counter_set_value(counter32);
+                    subghz_scene_signal_settings_counter_save(subghz);
                     break;
                 default:
                     break;

@@ -23,7 +23,7 @@
 #define SUBGHZ_LAST_SETTING_FIELD_LED_AND_POWER_AMP                 "LedAndPowerAmp"
 #define SUBGHZ_LAST_SETTING_FIELD_TX_POWER                          "TXPower"
 #define SUBGHZ_LAST_SETTING_FIELD_CUSTOM_CAR_EMULATE                "CustomCarEmulate"
-#define SUBGHZ_LAST_SETTING_FIELD_PROTOCOL_FILTER                   "ProtocolFilter"
+#define SUBGHZ_LAST_SETTING_FIELD_PROTOCOL_FILTER                   "ProtocolFilterOff"
 
 SubGhzLastSettings* subghz_last_settings_alloc(void) {
     SubGhzLastSettings* instance = malloc(sizeof(SubGhzLastSettings));
@@ -187,6 +187,7 @@ void subghz_last_settings_load(SubGhzLastSettings* instance, size_t preset_count
                 flipper_format_rewind(fff_data_file);
             }
             furi_string_free(filter_str);
+            subghz_last_settings_protocol_filter_normalize(instance);
 
         } while(0);
     } else {
