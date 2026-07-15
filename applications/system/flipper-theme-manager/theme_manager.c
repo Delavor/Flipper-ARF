@@ -1769,7 +1769,13 @@ static void theme_manager_populate_submenu(ThemeManagerApp* app) {
                     break;
                 }
 
-                snprintf(entry->label, MAX_LABEL_LEN, "%s%s", prefix, entry->name);
+                char label_buf[MAX_LABEL_LEN];
+                size_t prefix_len = strlen(prefix);
+                if(prefix_len >= sizeof(label_buf)) prefix_len = sizeof(label_buf) - 1;
+                memcpy(label_buf, prefix, prefix_len);
+                strncpy(label_buf + prefix_len, entry->name, sizeof(label_buf) - prefix_len - 1);
+                label_buf[sizeof(label_buf) - 1] = '\0';
+                memcpy(entry->label, label_buf, sizeof(label_buf));
 
                 if(strlen(entry->label) > MENU_LABEL_MAX_VISIBLE) {
                     entry->label[MENU_LABEL_MAX_VISIBLE - 3] = '.';
