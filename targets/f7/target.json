@@ -38,6 +38,8 @@
         "music_worker",
         "mbedtls",
         "lfrfid",
+        "one_wire",
+        "ibutton",
         "flipper_application",
         "u8g2",
         "nanopb",

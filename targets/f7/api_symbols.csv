@@ -1,5 +1,5 @@
 entry,status,name,type,params
-Version,+,89.2,,
+Version,+,89.3,,
 Header,+,applications/drivers/subghz/cc1101_ext/cc1101_ext_interconnect.h,,
 Header,+,applications/services/applications.h,,
 Header,+,applications/services/bt/bt_service/bt.h,,
@@ -66,6 +66,9 @@ Header,+,lib/flipper_application/plugins/plugin_manager.h,,
 Header,+,lib/flipper_format/flipper_format.h,,
 Header,+,lib/flipper_format/flipper_format_i.h,,
 Header,+,lib/flipper_format/flipper_format_stream.h,,
+Header,+,lib/ibutton/ibutton_key.h,,
+Header,+,lib/ibutton/ibutton_protocols.h,,
+Header,+,lib/ibutton/ibutton_worker.h,,
 Header,+,lib/ieee754_parse_wrap/wrappers.h,,
 Header,+,lib/infrared/encoder_decoder/infrared.h,,
 Header,+,lib/infrared/signal/infrared_brute_force.h,,
@@ -183,6 +186,9 @@ Header,+,lib/nfc/protocols/st25tb/st25tb_poller_sync.h,,
 Header,+,lib/nfc/protocols/type_4_tag/type_4_tag.h,,
 Header,+,lib/nfc/protocols/type_4_tag/type_4_tag_listener.h,,
 Header,+,lib/nfc/protocols/type_4_tag/type_4_tag_poller.h,,
+Header,+,lib/one_wire/maxim_crc.h,,
+Header,+,lib/one_wire/one_wire_host.h,,
+Header,+,lib/one_wire/one_wire_slave.h,,
 Header,+,lib/print/wrappers.h,,
 Header,+,lib/pulse_reader/pulse_reader.h,,
 Header,+,lib/signal_reader/signal_reader.h,,
@@ -1527,6 +1533,10 @@ Function,+,furi_hal_i2c_tx_ext,_Bool,"const FuriHalI2cBusHandle*, uint16_t, _Boo
 Function,+,furi_hal_i2c_write_mem,_Bool,"const FuriHalI2cBusHandle*, uint8_t, uint8_t, const uint8_t*, size_t, uint32_t"
 Function,+,furi_hal_i2c_write_reg_16,_Bool,"const FuriHalI2cBusHandle*, uint8_t, uint8_t, uint16_t, uint32_t"
 Function,+,furi_hal_i2c_write_reg_8,_Bool,"const FuriHalI2cBusHandle*, uint8_t, uint8_t, uint8_t, uint32_t"
+Function,+,furi_hal_ibutton_emulate_set_next,void,uint32_t
+Function,+,furi_hal_ibutton_emulate_start,void,"uint32_t, FuriHalIbuttonEmulateCallback, void*"
+Function,+,furi_hal_ibutton_emulate_stop,void,
+Function,+,furi_hal_ibutton_init,void,
 Function,+,furi_hal_ibutton_pin_configure,void,
 Function,+,furi_hal_ibutton_pin_reset,void,
 Function,+,furi_hal_ibutton_pin_write,void,const _Bool
@@ -2096,6 +2106,45 @@ Function,+,hex_chars_to_uint8,_Bool,"const char*, uint8_t*"
 Function,-,hypot,double,"double, double"
 Function,-,hypotf,float,"float, float"
 Function,-,hypotl,long double,"long double, long double"
+Function,+,ibutton_key_alloc,iButtonKey*,size_t
+Function,+,ibutton_key_free,void,iButtonKey*
+Function,+,ibutton_key_get_protocol_id,iButtonProtocolId,const iButtonKey*
+Function,+,ibutton_key_reset,void,iButtonKey*
+Function,+,ibutton_key_set_protocol_id,void,"iButtonKey*, iButtonProtocolId"
+Function,+,ibutton_protocols_alloc,iButtonProtocols*,
+Function,+,ibutton_protocols_apply_edits,void,"iButtonProtocols*, const iButtonKey*"
+Function,+,ibutton_protocols_emulate_start,void,"iButtonProtocols*, iButtonKey*"
+Function,+,ibutton_protocols_emulate_stop,void,"iButtonProtocols*, iButtonKey*"
+Function,+,ibutton_protocols_free,void,iButtonProtocols*
+Function,+,ibutton_protocols_get_editable_data,void,"iButtonProtocols*, const iButtonKey*, iButtonEditableData*"
+Function,+,ibutton_protocols_get_features,uint32_t,"iButtonProtocols*, iButtonProtocolId"
+Function,+,ibutton_protocols_get_id_by_name,iButtonProtocolId,"iButtonProtocols*, const char*"
+Function,+,ibutton_protocols_get_manufacturer,const char*,"iButtonProtocols*, iButtonProtocolId"
+Function,+,ibutton_protocols_get_max_data_size,size_t,iButtonProtocols*
+Function,+,ibutton_protocols_get_name,const char*,"iButtonProtocols*, iButtonProtocolId"
+Function,+,ibutton_protocols_get_protocol_count,uint32_t,
+Function,+,ibutton_protocols_is_valid,_Bool,"iButtonProtocols*, const iButtonKey*"
+Function,+,ibutton_protocols_load,_Bool,"iButtonProtocols*, iButtonKey*, const char*"
+Function,+,ibutton_protocols_read,_Bool,"iButtonProtocols*, iButtonKey*"
+Function,+,ibutton_protocols_render_brief_data,void,"iButtonProtocols*, const iButtonKey*, FuriString*"
+Function,+,ibutton_protocols_render_data,void,"iButtonProtocols*, const iButtonKey*, FuriString*"
+Function,+,ibutton_protocols_render_error,void,"iButtonProtocols*, const iButtonKey*, FuriString*"
+Function,+,ibutton_protocols_render_uid,void,"iButtonProtocols*, const iButtonKey*, FuriString*"
+Function,+,ibutton_protocols_save,_Bool,"iButtonProtocols*, const iButtonKey*, const char*"
+Function,+,ibutton_protocols_write_copy,_Bool,"iButtonProtocols*, iButtonKey*"
+Function,+,ibutton_protocols_write_id,_Bool,"iButtonProtocols*, iButtonKey*"
+Function,+,ibutton_worker_alloc,iButtonWorker*,iButtonProtocols*
+Function,+,ibutton_worker_emulate_set_callback,void,"iButtonWorker*, iButtonWorkerEmulateCallback, void*"
+Function,+,ibutton_worker_emulate_start,void,"iButtonWorker*, iButtonKey*"
+Function,+,ibutton_worker_free,void,iButtonWorker*
+Function,+,ibutton_worker_read_set_callback,void,"iButtonWorker*, iButtonWorkerReadCallback, void*"
+Function,+,ibutton_worker_read_start,void,"iButtonWorker*, iButtonKey*"
+Function,+,ibutton_worker_start_thread,void,iButtonWorker*
+Function,+,ibutton_worker_stop,void,iButtonWorker*
+Function,+,ibutton_worker_stop_thread,void,iButtonWorker*
+Function,+,ibutton_worker_write_copy_start,void,"iButtonWorker*, iButtonKey*"
+Function,+,ibutton_worker_write_id_start,void,"iButtonWorker*, iButtonKey*"
+Function,+,ibutton_worker_write_set_callback,void,"iButtonWorker*, iButtonWorkerWriteCallback, void*"
 Function,+,icon_animation_alloc,IconAnimation*,const Icon*
 Function,+,icon_animation_free,void,IconAnimation*
 Function,+,icon_animation_get_height,uint8_t,const IconAnimation*
@@ -2449,6 +2498,7 @@ Function,+,manchester_advance,_Bool,"ManchesterState, ManchesterEvent, Mancheste
 Function,+,manchester_encoder_advance,_Bool,"ManchesterEncoderState*, const _Bool, ManchesterEncoderResult*"
 Function,+,manchester_encoder_finish,ManchesterEncoderResult,ManchesterEncoderState*
 Function,+,manchester_encoder_reset,void,ManchesterEncoderState*
+Function,+,maxim_crc8,uint8_t,"const uint8_t*, const uint8_t, const uint8_t"
 Function,-,mbedtls_aes_crypt_cbc,int,"mbedtls_aes_context*, int, size_t, unsigned char[16], const unsigned char*, unsigned char*"
 Function,-,mbedtls_aes_crypt_cfb128,int,"mbedtls_aes_context*, int, size_t, size_t*, unsigned char[16], const unsigned char*, unsigned char*"
 Function,-,mbedtls_aes_crypt_cfb8,int,"mbedtls_aes_context*, int, size_t, unsigned char[16], const unsigned char*, unsigned char*"
@@ -2960,6 +3010,35 @@ Function,+,number_input_get_view,View*,NumberInput*
 Function,+,number_input_set_header_text,void,"NumberInput*, const char*"
 Function,+,number_input_set_result_callback,void,"NumberInput*, NumberInputCallback, void*, int32_t, int32_t, int32_t"
 Function,-,on_exit,int,"void (*)(int, void*), void*"
+Function,+,onewire_host_alloc,OneWireHost*,const GpioPin*
+Function,+,onewire_host_free,void,OneWireHost*
+Function,+,onewire_host_read,uint8_t,OneWireHost*
+Function,+,onewire_host_read_bit,_Bool,OneWireHost*
+Function,+,onewire_host_read_bytes,void,"OneWireHost*, uint8_t*, uint16_t"
+Function,+,onewire_host_reset,_Bool,OneWireHost*
+Function,+,onewire_host_reset_search,void,OneWireHost*
+Function,+,onewire_host_search,_Bool,"OneWireHost*, uint8_t*, OneWireHostSearchMode"
+Function,+,onewire_host_set_overdrive,void,"OneWireHost*, _Bool"
+Function,+,onewire_host_set_timings_default,void,OneWireHost*
+Function,+,onewire_host_set_timings_tm01x,void,OneWireHost*
+Function,+,onewire_host_start,void,OneWireHost*
+Function,+,onewire_host_stop,void,OneWireHost*
+Function,+,onewire_host_target_search,void,"OneWireHost*, uint8_t"
+Function,+,onewire_host_write,void,"OneWireHost*, uint8_t"
+Function,+,onewire_host_write_bit,void,"OneWireHost*, _Bool"
+Function,+,onewire_host_write_bytes,void,"OneWireHost*, const uint8_t*, uint16_t"
+Function,+,onewire_slave_alloc,OneWireSlave*,const GpioPin*
+Function,+,onewire_slave_free,void,OneWireSlave*
+Function,+,onewire_slave_receive,_Bool,"OneWireSlave*, uint8_t*, size_t"
+Function,+,onewire_slave_receive_bit,_Bool,OneWireSlave*
+Function,+,onewire_slave_send,_Bool,"OneWireSlave*, const uint8_t*, size_t"
+Function,+,onewire_slave_send_bit,_Bool,"OneWireSlave*, _Bool"
+Function,+,onewire_slave_set_command_callback,void,"OneWireSlave*, OneWireSlaveCommandCallback, void*"
+Function,+,onewire_slave_set_overdrive,void,"OneWireSlave*, _Bool"
+Function,+,onewire_slave_set_reset_callback,void,"OneWireSlave*, OneWireSlaveResetCallback, void*"
+Function,+,onewire_slave_set_result_callback,void,"OneWireSlave*, OneWireSlaveResultCallback, void*"
+Function,+,onewire_slave_start,void,OneWireSlave*
+Function,+,onewire_slave_stop,void,OneWireSlave*
 Function,-,open_memstream,FILE*,"char**, size_t*"
 Function,+,path_append,void,"FuriString*, const char*"
 Function,+,path_concat,void,"const char*, const char*, FuriString*"

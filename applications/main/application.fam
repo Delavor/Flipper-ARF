@@ -5,6 +5,7 @@ App(
     provides=[
         "gpio",
         "lfrfid",
+        "ibutton",
         "nfc",
         "subghz",
         "subghz_remote",
