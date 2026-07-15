@@ -5,7 +5,7 @@ App(
     entry_point="loader_srv",
     cdefines=["SRV_LOADER"],
     requires=["gui"],
-    provides=["loader_start"],
+    provides=["loader_start", "mainmenu_settings"],
     stack_size=2 * 1024,
     order=90,
     sdk_headers=[

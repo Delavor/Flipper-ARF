@@ -1,0 +1,12 @@
+App(
+    appid="mainmenu_settings",
+    name="Main Menu",
+    apptype=FlipperAppType.EXTSETTINGS,
+    entry_point="mainmenu_settings_app",
+    requires=[
+        "gui",
+    ],
+    stack_size=2 * 1024,
+    order=15,
+    fap_category="System",
+)
