@@ -21,6 +21,8 @@ static const char* archive_get_flipper_app_name(ArchiveFileTypeEnum file_type) {
         return "Sub-GHz Remote";
     case ArchiveFileTypeLFRFID:
         return "125 kHz RFID";
+    case ArchiveFileTypeIButton:
+        return "iButton";
     case ArchiveFileTypeInfrared:
         return "Infrared";
     case ArchiveFileTypeBadUsb:

@@ -13,6 +13,7 @@ typedef enum {
     ArchiveFileTypeSubGhz,
     ArchiveFileTypeSubGhzRemote,
     ArchiveFileTypeLFRFID,
+    ArchiveFileTypeIButton,
     ArchiveFileTypeInfrared,
     ArchiveFileTypeBadUsb,
     ArchiveFileTypeU2f,
