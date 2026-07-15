@@ -9,6 +9,11 @@
 
 #define TAG "MainMenuSettings"
 
+// Sentinel index for the "Browse Installed Apps" entry in the Add Item
+// submenu; real entries use a static app-name pointer cast to uint32_t,
+// which is always a much larger value on this target.
+#define ADD_MENU_INDEX_BROWSE (0xFFFFFFFFu)
+
 typedef enum {
     VarItemListIndexItem,
     VarItemListIndexAddItem,
@@ -219,78 +224,66 @@ static void mainmenu_settings_move_changed(VariableItem* item) {
     mainmenu_settings_update_item_display(app);
 }
 
-static void mainmenu_settings_clear_add_paths(MainMenuSettingsApp* app) {
-    for(size_t i = 0; i < app->add_paths_count; i++) {
-        free(app->add_paths[i]);
-    }
-    app->add_paths_count = 0;
+// Live preview while browsing /ext/apps: real name + icon per file, read
+// from its FAP manifest, exactly like Momentum's own "External App" picker.
+static bool mainmenu_settings_fap_preview_callback(
+    FuriString* path,
+    void* context,
+    uint8_t** icon,
+    FuriString* item_name) {
+    MainMenuSettingsApp* app = context;
+    return flipper_application_load_name_and_icon(path, app->storage, icon, item_name);
 }
 
-// Recursively finds every installed .fap under /ext/apps that isn't already
-// in the menu, so it can be listed directly (no separate "browse" step).
-static void mainmenu_settings_scan_apps_folder(MainMenuSettingsApp* app) {
-    DirWalk* dir_walk = dir_walk_alloc(app->storage);
-    dir_walk_set_recursive(dir_walk, true);
+static void mainmenu_settings_browse_installed(MainMenuSettingsApp* app) {
+    FuriString* result_path = furi_string_alloc_set_str(EXT_PATH("apps"));
 
-    if(dir_walk_open(dir_walk, EXT_PATH("apps"))) {
-        FuriString* path = furi_string_alloc();
-        FileInfo file_info;
-        while(dir_walk_read(dir_walk, path, &file_info) == DirWalkOK) {
-            if(file_info.flags & FSF_DIRECTORY) continue;
-            if(!furi_string_end_withi(path, ".fap")) continue;
+    DialogsFileBrowserOptions browser_options;
+    dialog_file_browser_set_basic_options(&browser_options, ".fap", NULL);
+    browser_options.base_path = EXT_PATH("apps");
+    browser_options.item_loader_callback = mainmenu_settings_fap_preview_callback;
+    browser_options.item_loader_context = app;
 
-            const char* path_cstr = furi_string_get_cstr(path);
-            if(mainmenu_settings_is_included(app, path_cstr)) continue;
-
-            if(app->add_paths_count == app->add_paths_capacity) {
-                app->add_paths_capacity = app->add_paths_capacity ? app->add_paths_capacity * 2 :
-                                                                     16;
-                app->add_paths =
-                    realloc(app->add_paths, app->add_paths_capacity * sizeof(char*)); //-V701
-            }
-            app->add_paths[app->add_paths_count++] = strdup(path_cstr);
+    if(dialog_file_browser_show(app->dialogs, result_path, result_path, &browser_options)) {
+        const char* path = furi_string_get_cstr(result_path);
+        if(!mainmenu_settings_is_included(app, path)) {
+            mainmenu_settings_push_path(app, path);
+            app->selected_item = app->items_count - 1;
+            app->modified = true;
+            mainmenu_settings_update_item_display(app);
         }
-        furi_string_free(path);
     }
-    dir_walk_close(dir_walk);
-    dir_walk_free(dir_walk);
+
+    furi_string_free(result_path);
 }
 
 static void mainmenu_settings_add_submenu_callback(void* context, uint32_t index) {
     MainMenuSettingsApp* app = context;
 
-    if(index < app->add_paths_count) {
-        const char* path = app->add_paths[index];
-        FuriString* fpath = furi_string_alloc_set_str(path);
-        FuriString* fname = furi_string_alloc();
-        uint8_t icon_buf[FAP_MANIFEST_MAX_ICON_SIZE];
-        uint8_t* icon_ptr = icon_buf;
-
-        if(flipper_application_load_name_and_icon(fpath, app->storage, &icon_ptr, fname)) {
-            mainmenu_settings_push(app, furi_string_get_cstr(fname), path);
-        } else {
-            const char* base = strrchr(path, '/');
-            mainmenu_settings_push(app, base ? base + 1 : path, path);
-        }
-        furi_string_free(fpath);
-        furi_string_free(fname);
+    if(index == ADD_MENU_INDEX_BROWSE) {
+        mainmenu_settings_browse_installed(app);
     } else {
         const char* name = (const char*)(uintptr_t)index;
         mainmenu_settings_push(app, name, name);
+        app->selected_item = app->items_count - 1;
+        app->modified = true;
+        mainmenu_settings_update_item_display(app);
     }
 
-    app->selected_item = app->items_count - 1;
-    app->modified = true;
-
     submenu_reset(app->add_submenu);
-    mainmenu_settings_clear_add_paths(app);
-    mainmenu_settings_update_item_display(app);
     view_dispatcher_switch_to_view(app->view_dispatcher, MainMenuSettingsViewVarItemList);
 }
 
 static void mainmenu_settings_build_add_submenu(MainMenuSettingsApp* app) {
     submenu_reset(app->add_submenu);
     submenu_set_header(app->add_submenu, "Add Menu Item:");
+
+    submenu_add_item(
+        app->add_submenu,
+        "Installed App (browse)",
+        ADD_MENU_INDEX_BROWSE,
+        mainmenu_settings_add_submenu_callback,
+        app);
 
     for(size_t i = 0; i < FLIPPER_APPS_COUNT; i++) {
         if(!mainmenu_settings_is_included(app, FLIPPER_APPS[i].name)) {
@@ -311,34 +304,6 @@ static void mainmenu_settings_build_add_submenu(MainMenuSettingsApp* app) {
                 mainmenu_settings_add_submenu_callback,
                 app);
         }
-    }
-
-    mainmenu_settings_clear_add_paths(app);
-    mainmenu_settings_scan_apps_folder(app);
-    for(size_t i = 0; i < app->add_paths_count; i++) {
-        FuriString* fpath = furi_string_alloc_set_str(app->add_paths[i]);
-        FuriString* fname = furi_string_alloc();
-        uint8_t icon_buf[FAP_MANIFEST_MAX_ICON_SIZE];
-        uint8_t* icon_ptr = icon_buf;
-
-        if(flipper_application_load_name_and_icon(fpath, app->storage, &icon_ptr, fname)) {
-            submenu_add_item(
-                app->add_submenu,
-                furi_string_get_cstr(fname),
-                (uint32_t)i,
-                mainmenu_settings_add_submenu_callback,
-                app);
-        } else {
-            const char* base = strrchr(app->add_paths[i], '/');
-            submenu_add_item(
-                app->add_submenu,
-                base ? base + 1 : app->add_paths[i],
-                (uint32_t)i,
-                mainmenu_settings_add_submenu_callback,
-                app);
-        }
-        furi_string_free(fpath);
-        furi_string_free(fname);
     }
 }
 
@@ -397,6 +362,7 @@ static MainMenuSettingsApp* mainmenu_settings_app_alloc(void) {
     memset(app, 0, sizeof(MainMenuSettingsApp));
     app->gui = furi_record_open(RECORD_GUI);
     app->storage = furi_record_open(RECORD_STORAGE);
+    app->dialogs = furi_record_open(RECORD_DIALOGS);
 
     mainmenu_settings_load(app);
 
@@ -468,9 +434,8 @@ static void mainmenu_settings_app_free(MainMenuSettingsApp* app) {
     mainmenu_settings_clear(app);
     free(app->item_names);
     free(app->item_exes);
-    mainmenu_settings_clear_add_paths(app);
-    free(app->add_paths);
 
+    furi_record_close(RECORD_DIALOGS);
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_GUI);
     free(app);

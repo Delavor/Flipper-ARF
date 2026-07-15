@@ -7,7 +7,7 @@
 #include <gui/modules/submenu.h>
 #include <gui/modules/dialog_ex.h>
 #include <storage/storage.h>
-#include <lib/toolbox/dir_walk.h>
+#include <dialogs/dialogs.h>
 
 // Same contract as applications/services/loader/loader_menu.h. Duplicated
 // locally (instead of including the loader-internal header) so this app
@@ -24,6 +24,7 @@ typedef enum {
 typedef struct {
     Gui* gui;
     Storage* storage;
+    DialogsApp* dialogs;
     ViewDispatcher* view_dispatcher;
     VariableItemList* var_item_list;
     Submenu* add_submenu;
@@ -40,12 +41,6 @@ typedef struct {
     size_t items_count;
     size_t items_capacity;
     size_t selected_item;
-
-    // Installed .fap paths found under /ext/apps not yet in the menu,
-    // rebuilt each time the Add Item submenu is opened.
-    char** add_paths;
-    size_t add_paths_count;
-    size_t add_paths_capacity;
 
     bool modified;
 } MainMenuSettingsApp;
