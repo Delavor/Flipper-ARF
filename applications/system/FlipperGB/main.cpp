@@ -21,14 +21,15 @@
 #include <string.h>
 #include <new>
 
-#include "gb/gameboy.h"
+#include "lib/gbcore/gameboy.h"
 
 #define SCREEN_W 128
 #define SCREEN_H 64
 #define BUFFER_SIZE (SCREEN_W * SCREEN_H / 8)
 
 #define GB_FRAME_US 16742 /* 59.73 Hz */
-#define BANK_SIZE 0x4000u
+#define BANK_SIZE 0x4000u /* MBC bank: 16 KB (bank 0 stays resident whole) */
+#define PAGE_SIZE 0x2000u /* cache granularity: 8 KB = half a bank */
 /* Heap kept free for the GUI/system while playing. 10 KB is enough for the
  * direct-draw takeover + input subscription + background services; the old
  * 24 KB reserve was more than one whole ROM bank of wasted headroom and
@@ -58,28 +59,32 @@ enum {
     KBIT_B = 1 << 5,
 };
 
-/* ROM bank cache.
+/* ROM page cache.
  *
- * Every switchable bank lives in its own 16 KB heap block: there is no
- * "whole ROM in one contiguous malloc" fast path any more, because a large
- * contiguous allocation is exactly what fails (and used to crash the
- * firmware) on a fragmented heap. Instead:
+ * Every 8 KB ROM page lives in its own heap block: there is no "whole ROM
+ * in one contiguous malloc" fast path, because a large contiguous
+ * allocation is exactly what fails (and used to crash the firmware) on a
+ * fragmented heap. 8 KB granularity (half a MBC bank) doubles the number
+ * of cache slots per KB of heap and halves the SD stall of a miss, which
+ * is what makes bank-switch heavy games (Pokemon) playable while
+ * streaming.
  *
- *  - as many 16 KB slots as the heap safely affords are allocated up front;
- *  - if every switchable bank got a slot, the ROM is fully resident: bank
+ *  - as many 8 KB slots as the heap safely affords are allocated up front;
+ *  - if every switchable page got a slot, the ROM is fully resident: page
  *    lookup is a direct O(1) index and the SD file is closed;
- *  - otherwise the slots form an LRU cache streaming banks from SD.
+ *  - otherwise the slots form an LRU cache streaming pages from SD.
  */
 typedef struct {
     File* file; /* NULL once the ROM is fully resident */
     u8* bank0;
-    u8** slots; /* num_slots pointers to 16 KB blocks */
-    u16* slot_bank; /* which bank each slot holds (0 = empty) */
+    u8** slots; /* num_slots pointers to 8 KB blocks */
+    u16* slot_page; /* which ROM page each slot holds (0 = empty) */
     u32* slot_use; /* LRU stamps (streaming mode only) */
+    u16* slot_hits; /* hit counters: the hottest slot is eviction-protected */
     u32 use_counter;
     u16 num_slots;
     u16 banks;
-    bool fully_loaded; /* slots[i] permanently holds bank i+1 */
+    bool fully_loaded; /* slots[i] permanently holds page i+2 */
 } RomCache;
 
 typedef struct {
@@ -90,21 +95,24 @@ typedef struct {
     FuriMutex* fb_mutex;
 
     volatile uint8_t keys; /* KBIT_* currently pressed */
+    uint8_t keys_blocked; /* held keys suppressed until physical release */
     volatile bool menu_requested;
     volatile bool menu_active;
     volatile bool exit_requested;
 
     Gameboy* gb;
+    void* gb_mem; /* raw block for the Gameboy, reserved during rom_load */
     RomCache rom;
     u8* cart_ram;
     u32 cart_ram_size;
     bool has_battery;
 
     /* sound (single-tone piezo fed with the dominant APU voice) */
-    bool sound_enabled;
+    uint8_t volume_setting; /* 0 = off, 1..4 = 25/50/75/100% */
     bool speaker_acquired;
     uint32_t tone_freq; /* currently playing tone, 0 = silent */
     uint8_t tone_vol; /* 0..15, scaled by master volume */
+    uint8_t tone_setting; /* volume_setting the current tone was started with */
 
     /* menu */
     int menu_cursor;
@@ -138,39 +146,66 @@ extern "C" [[noreturn]] void gb_fatal(const char* msg) {
 
 /* ------------------------------------------------------- rom bank provider */
 
-static const u8* rom_bank_provider(void* ctx, uint bank) {
+static const u8* rom_bank_provider(void* ctx, uint page) {
     RomCache* rc = (RomCache*)ctx;
 
-    if(bank == 0) return rc->bank0;
+    /* pages 0 and 1 are the two halves of the resident bank 0 */
+    if(page < 2) return rc->bank0 + page * PAGE_SIZE;
 
     if(rc->fully_loaded) {
-        return rc->slots[bank - 1]; /* O(1), the whole ROM is resident */
+        return rc->slots[page - 2]; /* O(1), the whole ROM is resident */
     }
 
-    /* cache lookup */
-    u16 lru = 0;
+    /* cache lookup. Eviction is LRU with two protections:
+     *  - never evict the MRU slot: the cartridge's lo page is always the
+     *    MRU when its (lazy) hi page faults in, so the lo pointer can
+     *    never be left dangling;
+     *  - keep the single hottest slot (most hits, e.g. the page holding
+     *    the music driver that is switched in every frame): pure LRU on
+     *    Pokemon's cyclic per-frame bank pattern degenerated to a ~0%
+     *    hit rate. Hit counters decay periodically so the protection
+     *    adapts when the hot page changes. */
+    u16 hottest = 0;
+    u16 mru = 0;
+    for(u16 i = 1; i < rc->num_slots; i++) {
+        if(rc->slot_hits[i] > rc->slot_hits[hottest]) hottest = i;
+        if(rc->slot_use[i] > rc->slot_use[mru]) mru = i;
+    }
+
+    u16 lru = 0xFFFF;
     u32 lru_use = 0xFFFFFFFFu;
     for(u16 i = 0; i < rc->num_slots; i++) {
-        if(rc->slot_bank[i] == bank) {
+        if(rc->slot_page[i] == page) {
             rc->slot_use[i] = ++rc->use_counter;
+            if(rc->slot_hits[i] < 0xFFFF) rc->slot_hits[i]++;
+            if((rc->use_counter & 63) == 0) {
+                for(u16 j = 0; j < rc->num_slots; j++)
+                    rc->slot_hits[j] >>= 1;
+            }
             return rc->slots[i];
         }
-        if(rc->slot_use[i] < lru_use) {
+        if(i != hottest && i != mru && rc->slot_use[i] < lru_use) {
             lru_use = rc->slot_use[i];
             lru = i;
         }
     }
-
-    /* miss: stream the bank from SD into the LRU slot */
-    storage_file_seek(rc->file, (u32)bank * BANK_SIZE, true);
-    size_t got = storage_file_read(rc->file, rc->slots[lru], BANK_SIZE);
-    if(got < BANK_SIZE) {
-        /* short read (SD hiccup / truncated ROM): open-bus instead of
-         * stale data from whatever bank lived here before */
-        memset(rc->slots[lru] + got, 0xFF, BANK_SIZE - got);
+    if(lru == 0xFFFF) {
+        /* every other slot excluded (2-slot cache): sacrifice the hottest;
+         * it is never the MRU in this branch, so the lo page stays safe */
+        lru = (hottest != mru) ? hottest : (u16)(mru == 0 ? 1 : 0);
     }
-    rc->slot_bank[lru] = (u16)bank;
+
+    /* miss: stream the page from SD into the LRU slot */
+    storage_file_seek(rc->file, (u32)page * PAGE_SIZE, true);
+    size_t got = storage_file_read(rc->file, rc->slots[lru], PAGE_SIZE);
+    if(got < PAGE_SIZE) {
+        /* short read (SD hiccup / truncated ROM): open-bus instead of
+         * stale data from whatever page lived here before */
+        memset(rc->slots[lru] + got, 0xFF, PAGE_SIZE - got);
+    }
+    rc->slot_page[lru] = (u16)page;
     rc->slot_use[lru] = ++rc->use_counter;
+    rc->slot_hits[lru] = 1;
     return rc->slots[lru];
 }
 
@@ -185,9 +220,11 @@ static uint8_t s_ymap[SCREEN_H];
  * rendering work per frame). */
 static u8 s_rowmask[GAMEBOY_HEIGHT];
 
-/* light/dark decision per (y-parity, x-parity, shade): 2x2 ordered dither.
- * white -> lit, light gray -> 3/4 lit, dark gray -> 1/4 lit, black -> off */
-static uint8_t s_dither[2][2][4];
+/* Dither LUT: maps one packed 2bpp framebuffer byte (4 consecutive GB
+ * pixels) to 4 light/dark bits (bit j = pixel j), per destination row
+ * parity. 2x2 ordered dither: white -> lit, light gray -> 3/4 lit,
+ * dark gray -> 1/4 lit, black -> off. */
+static uint8_t s_dither4[2][256];
 
 static void init_scale_maps(void) {
     for(int x = 0; x < SCREEN_W; x++)
@@ -200,17 +237,32 @@ static void init_scale_maps(void) {
         s_rowmask[s_ymap[y]] = 1;
 
     for(int py = 0; py < 2; py++) {
-        for(int px = 0; px < 2; px++) {
-            s_dither[py][px][0] = 1;
-            s_dither[py][px][1] = (px == 1 && py == 1) ? 0 : 1;
-            s_dither[py][px][2] = (px == 0 && py == 0) ? 1 : 0;
-            s_dither[py][px][3] = 0;
+        for(int v = 0; v < 256; v++) {
+            uint8_t bits = 0;
+            for(int j = 0; j < 4; j++) {
+                int s = (v >> (j * 2)) & 3;
+                int px = j & 1;
+                bool light;
+                switch(s) {
+                case 0: light = true; break;
+                case 1: light = !(px == 1 && py == 1); break;
+                case 2: light = (px == 0 && py == 0); break;
+                default: light = false; break;
+                }
+                if(light) bits |= (uint8_t)(1 << j);
+            }
+            s_dither4[py][v] = bits;
         }
     }
 }
 
 /* Called by the core on every vblank, before the framebuffer is cleared.
- * Converts 4 shades -> 1 bit with a 2x2 ordered dither. */
+ * Converts 4 shades -> 1 bit with a 2x2 ordered dither.
+ *
+ * Byte-oriented: destination pixels 4g..4g+3 map to source pixels
+ * 5g..5g+3 (the 160->128 downscale drops every 5th column), so each
+ * destination nibble comes from 8 consecutive source bits, converted with
+ * a single LUT lookup instead of per-pixel shade extraction. */
 static void frame_callback(void* ctx) {
     AppState* app = (AppState*)ctx;
     const u8* raw = app->gb->get_framebuffer().raw(); /* packed 2bpp */
@@ -221,19 +273,24 @@ static void frame_callback(void* ctx) {
     for(int y = 0; y < SCREEN_H; y++) {
         /* storage is compacted to the 64 displayed rows in ascending order
          * (GB_FB_ROWS=64 + row mask), so displayed row y == storage slot y */
-        uint base = (uint)y * GAMEBOY_WIDTH;
+        const u8* src = raw + (uint)y * (GAMEBOY_WIDTH / 4);
         uint8_t bit = (uint8_t)(1u << (y & 7));
         uint8_t nbit = (uint8_t)~bit;
         uint8_t* row = dst + (y >> 3) * SCREEN_W;
-        const uint8_t(*dither)[4] = s_dither[y & 1];
+        const uint8_t* dlut = s_dither4[y & 1];
 
-        for(int x = 0; x < SCREEN_W; x++) {
-            uint i = base + s_xmap[x];
-            uint s = (raw[i >> 2] >> ((i & 3) << 1)) & 0x3;
-            if(dither[x & 1][s])
-                row[x] |= bit;
-            else
-                row[x] &= nbit;
+        for(int g = 0; g < SCREEN_W / 4; g++) {
+            uint spx = (uint)g * 5; /* first source pixel of this group */
+            uint so = spx >> 2;
+            uint sh = (spx & 3) * 2;
+            uint packed = ((uint)src[so] | ((uint)src[so + 1] << 8)) >> sh;
+            uint8_t four = dlut[packed & 0xFF];
+
+            uint8_t* p = row + g * 4;
+            p[0] = (four & 1) ? (uint8_t)(p[0] | bit) : (uint8_t)(p[0] & nbit);
+            p[1] = (four & 2) ? (uint8_t)(p[1] | bit) : (uint8_t)(p[1] & nbit);
+            p[2] = (four & 4) ? (uint8_t)(p[2] | bit) : (uint8_t)(p[2] & nbit);
+            p[3] = (four & 8) ? (uint8_t)(p[3] | bit) : (uint8_t)(p[3] & nbit);
         }
     }
 
@@ -311,8 +368,11 @@ static void input_events_callback(const void* value, void* ctx) {
             uint8_t keys =
                 (uint8_t)__atomic_or_fetch((uint8_t*)&app->keys, bit, __ATOMIC_RELAXED);
             /* Up+Down together: physically impossible on a real GB d-pad,
-             * so it is our reserved menu gesture */
-            if((keys & (KBIT_UP | KBIT_DOWN)) == (KBIT_UP | KBIT_DOWN)) {
+             * so it is our reserved menu gesture. Ignored while the menu
+             * is already open: fast Up->Down rollover while navigating
+             * used to re-latch the request and instantly reopen the menu
+             * after closing it (merging consecutive Start injections). */
+            if(!app->menu_active && (keys & (KBIT_UP | KBIT_DOWN)) == (KBIT_UP | KBIT_DOWN)) {
                 app->menu_requested = true;
             }
         } else if(event->type == InputTypeRelease) {
@@ -325,7 +385,11 @@ static void input_events_callback(const void* value, void* ctx) {
 
 /* Apply the current key snapshot to the emulated joypad (edge based) */
 static void apply_input(AppState* app, uint8_t* last_applied) {
-    uint8_t now = app->menu_active ? 0 : app->keys;
+    /* keys_blocked: the A/B press that operated the menu must not leak
+     * into the game as a fresh press when the menu closes; blocked bits
+     * clear automatically on physical release */
+    app->keys_blocked &= app->keys;
+    uint8_t now = app->menu_active ? 0 : (uint8_t)(app->keys & ~app->keys_blocked);
     uint8_t changed = (uint8_t)(now ^ *last_applied);
     if(!changed && !app->inject_start_frames && !app->inject_select_frames) return;
 
@@ -379,7 +443,7 @@ static void sound_update(AppState* app, bool force_silent) {
     ApuVoice best = {false, 0, 0, 0};
     bool have = false;
 
-    if(!force_silent && app->sound_enabled && !app->menu_active) {
+    if(!force_silent && app->volume_setting && !app->menu_active) {
         ApuVoice v;
         /* pulse 1 / pulse 2 */
         for(uint n = 0; n < 2; n++) {
@@ -422,10 +486,17 @@ static void sound_update(AppState* app, bool force_silent) {
             uint8_t vol = (uint8_t)((best.volume * (master + 1)) >> 3); /* 0..15 */
             if(vol == 0) {
                 have = false;
-            } else if(f != app->tone_freq || vol != app->tone_vol) {
-                furi_hal_speaker_start((float)f, (float)vol / 15.0f);
+            } else if(
+                f != app->tone_freq || vol != app->tone_vol ||
+                app->volume_setting != app->tone_setting) {
+                /* piezo loudness vs PWM value is very nonlinear: spread
+                 * the 4 user levels perceptually, not linearly */
+                static const float level[5] = {0.0f, 0.10f, 0.25f, 0.50f, 1.0f};
+                furi_hal_speaker_start(
+                    (float)f, ((float)vol / 15.0f) * level[app->volume_setting]);
                 app->tone_freq = f;
                 app->tone_vol = vol;
+                app->tone_setting = app->volume_setting;
             }
         }
     }
@@ -511,18 +582,25 @@ static void menu_draw(AppState* app) {
             canvas_draw_str(c, 72, y, buf);
         }
         if(i == 4) {
+            static const char* vols[5] = {"off", "25%", "50%", "75%", "100%"};
             canvas_draw_str(
-                c, 72, y, !app->speaker_acquired ? "n/a" : (app->sound_enabled ? "on" : "off"));
+                c, 72, y, !app->speaker_acquired ? "n/a" : vols[app->volume_setting]);
         }
     }
 
     if(app->status_msg[0]) {
         canvas_draw_str(c, 70, 10, app->status_msg);
     } else {
-        /* free heap indicator: helps spotting memory pressure on device */
-        char rambuf[16];
-        snprintf(rambuf, sizeof(rambuf), "%uk free", (unsigned)(memmgr_get_free_heap() / 1024u));
-        canvas_draw_str_aligned(c, 126, 10, AlignRight, AlignBottom, rambuf);
+        /* diagnostics: free heap + real cost of one emulated frame
+         * (16.7ms = full speed; above that the game runs slow) */
+        char diagbuf[28];
+        snprintf(
+            diagbuf,
+            sizeof(diagbuf),
+            "%uk %lums",
+            (unsigned)(memmgr_get_free_heap() / 1024u),
+            (unsigned long)(app->emu_ms_ema >> 4));
+        canvas_draw_str_aligned(c, 126, 10, AlignRight, AlignBottom, diagbuf);
     }
 
     canvas_commit(c);
@@ -554,7 +632,11 @@ static bool menu_tick(AppState* app, Storage* storage, FuriString* sav_path) {
             app->frameskip_setting = v;
         }
         if(app->menu_cursor == 4 && app->speaker_acquired) {
-            app->sound_enabled = !app->sound_enabled;
+            /* volume: off, 25, 50, 75, 100% */
+            if(pressed & KBIT_RIGHT)
+                app->volume_setting = (uint8_t)((app->volume_setting + 1) % 5);
+            else
+                app->volume_setting = (uint8_t)((app->volume_setting + 4) % 5);
         }
     }
 
@@ -565,17 +647,22 @@ static bool menu_tick(AppState* app, Storage* storage, FuriString* sav_path) {
         case 0:
             return false;
         case 1:
-            app->gb->button_pressed(GbButton::Start);
+            /* extend rather than re-press if an injection is still live:
+             * two overlapping presses would merge into one edge for the
+             * game (Tetris pause state would get out of sync) */
+            if(app->inject_start_frames == 0) app->gb->button_pressed(GbButton::Start);
             app->inject_start_frames = 8;
             return false;
         case 2:
-            app->gb->button_pressed(GbButton::Select);
+            if(app->inject_select_frames == 0) app->gb->button_pressed(GbButton::Select);
             app->inject_select_frames = 8;
             return false;
         case 3:
             break;
         case 4:
-            if(app->speaker_acquired) app->sound_enabled = !app->sound_enabled;
+            /* OK toggles mute <-> full volume */
+            if(app->speaker_acquired)
+                app->volume_setting = app->volume_setting ? 0 : 4;
             break;
         case 5:
             if(app->has_battery) {
@@ -648,52 +735,59 @@ static RomLoadResult
         memset(app->cart_ram, 0, app->cart_ram_size);
     }
 
-    /* Allocate as many 16 KB bank slots as the heap safely affords.
-     *
-     * IMPORTANT: the emulator core (Gameboy: 8K VRAM + 8K WRAM + packed
-     * framebuffer + CPU state, ~22 KB) plus the GUI takeover (mutex, canvas,
-     * input subscription) are allocated AFTER the ROM cache, so room for
-     * them is reserved up front. Each slot is its own allocation: no huge
-     * contiguous block is ever requested, which makes the loader immune to
-     * heap fragmentation (the old single-malloc full-ROM path could crash
-     * the firmware even when the total free heap looked sufficient). */
-    u32 switchable = (u32)(rc->banks - 1);
-    const size_t reserve = HEAP_RESERVE + sizeof(Gameboy) + 1024 /* alloc slack */;
+    /* Reserve the emulator core RIGHT NOW as a real allocation instead of
+     * a pessimistic estimate: every byte of over-reservation here used to
+     * cost cache slots (Pokemon got 2-3 slots for a 1 MB ROM). The block
+     * is placement-constructed later. */
+    app->gb_mem = safe_malloc(sizeof(Gameboy));
+    if(!app->gb_mem) return RomLoadNoMem;
+
+    /* Allocate as many 8 KB page slots as the heap safely affords. Each
+     * slot is its own allocation: no huge contiguous block is ever
+     * requested, which makes the loader immune to heap fragmentation.
+     * HEAP_RESERVE stays free for the GUI takeover + system services. */
+    u32 switchable = (u32)(rc->banks - 1) * 2; /* 8 KB pages past bank 0 */
+    const size_t reserve = HEAP_RESERVE;
 
     /* slot bookkeeping arrays (a few bytes per slot) */
     size_t free_heap = memmgr_get_free_heap();
-    u32 max_slots = (u32)(free_heap / BANK_SIZE) + 1;
+    u32 max_slots = (u32)(free_heap / PAGE_SIZE) + 1;
     if(max_slots > switchable) max_slots = switchable;
-    if(max_slots < 1) max_slots = 1;
+    if(max_slots < 2) max_slots = 2;
 
     rc->slots = (u8**)safe_malloc(max_slots * sizeof(u8*));
-    rc->slot_bank = (u16*)safe_malloc(max_slots * sizeof(u16));
+    rc->slot_page = (u16*)safe_malloc(max_slots * sizeof(u16));
     rc->slot_use = (u32*)safe_malloc(max_slots * sizeof(u32));
-    if(!rc->slots || !rc->slot_bank || !rc->slot_use) return RomLoadNoMem;
+    rc->slot_hits = (u16*)safe_malloc(max_slots * sizeof(u16));
+    if(!rc->slots || !rc->slot_page || !rc->slot_use || !rc->slot_hits) return RomLoadNoMem;
 
     rc->num_slots = 0;
     while((u32)rc->num_slots < max_slots) {
-        if(memmgr_get_free_heap() < reserve + BANK_SIZE + ALLOC_MARGIN) break;
-        u8* slot = (u8*)safe_malloc(BANK_SIZE);
+        if(memmgr_get_free_heap() < reserve + PAGE_SIZE + ALLOC_MARGIN) break;
+        u8* slot = (u8*)safe_malloc(PAGE_SIZE);
         if(!slot) break;
         rc->slots[rc->num_slots] = slot;
-        rc->slot_bank[rc->num_slots] = 0; /* bank 0 never lives in a slot */
+        rc->slot_page[rc->num_slots] = 0; /* page 0 never lives in a slot */
         rc->slot_use[rc->num_slots] = 0;
+        rc->slot_hits[rc->num_slots] = 0;
         rc->num_slots++;
     }
 
-    /* not even one 16 KB slot fits: fail gracefully with the
-     * "Not enough RAM" dialog instead of crashing inside malloc() */
-    if(rc->num_slots == 0) return RomLoadNoMem;
+    /* fewer than two 8 KB slots: fail gracefully with the "Not enough
+     * RAM" dialog instead of crashing inside malloc(). Two is the hard
+     * minimum: the cartridge maps a lo and a (lazy) hi page and the
+     * provider guarantees the two most recently returned pages are never
+     * evicted -- with a single slot the lo pointer would dangle. */
+    if(rc->num_slots < 2) return RomLoadNoMem;
 
     if((u32)rc->num_slots >= switchable) {
-        /* every switchable bank fits: preload the whole ROM and close the
+        /* every switchable page fits: preload the whole ROM and close the
          * SD file (O(1) bank switching, zero stutter, frees the handle) */
         storage_file_seek(rc->file, BANK_SIZE, true);
         for(u32 i = 0; i < switchable; i++) {
-            size_t got = storage_file_read(rc->file, rc->slots[i], BANK_SIZE);
-            if(got < BANK_SIZE) memset(rc->slots[i] + got, 0xFF, BANK_SIZE - got);
-            rc->slot_bank[i] = (u16)(i + 1);
+            size_t got = storage_file_read(rc->file, rc->slots[i], PAGE_SIZE);
+            if(got < PAGE_SIZE) memset(rc->slots[i] + got, 0xFF, PAGE_SIZE - got);
+            rc->slot_page[i] = (u16)(i + 2);
         }
         rc->fully_loaded = true;
         storage_file_close(rc->file);
@@ -709,8 +803,9 @@ static void rom_free(AppState* app) {
     for(u16 i = 0; i < rc->num_slots; i++)
         if(rc->slots[i]) free(rc->slots[i]);
     if(rc->slots) free(rc->slots);
-    if(rc->slot_bank) free(rc->slot_bank);
+    if(rc->slot_page) free(rc->slot_page);
     if(rc->slot_use) free(rc->slot_use);
+    if(rc->slot_hits) free(rc->slot_hits);
     if(rc->bank0) free(rc->bank0);
     if(rc->file) {
         storage_file_close(rc->file);
@@ -778,18 +873,10 @@ extern "C" int32_t flipgb_app(void* p) {
         app->fb_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
         if(!app->fb_mutex) break;
 
-        /* rom_load reserved room for this, but double-check anyway: on the
-         * Flipper an unchecked new/malloc crashes the firmware on OOM */
-        void* gb_mem = safe_malloc(sizeof(Gameboy));
-        if(!gb_mem) {
-            DialogMessage* msg = dialog_message_alloc();
-            dialog_message_set_text(msg, "Not enough RAM", 64, 30, AlignCenter, AlignCenter);
-            dialog_message_set_buttons(msg, NULL, "OK", NULL);
-            dialog_message_show(dialogs, msg);
-            dialog_message_free(msg);
-            break;
-        }
-        app->gb = new(gb_mem) Gameboy(
+        /* rom_load pre-allocated this block (so the ROM cache could size
+         * itself against real free heap, not an estimate) */
+        furi_check(app->gb_mem != NULL);
+        app->gb = new(app->gb_mem) Gameboy(
             app->rom.bank0,
             app->rom.banks,
             mbc,
@@ -802,7 +889,7 @@ extern "C" int32_t flipgb_app(void* p) {
 
         /* --- sound: piezo plays the dominant APU voice --- */
         app->speaker_acquired = furi_hal_speaker_acquire(50);
-        app->sound_enabled = app->speaker_acquired;
+        app->volume_setting = app->speaker_acquired ? 4 : 0;
 
         /* --- take over the display --- */
         gui = (Gui*)furi_record_open(RECORD_GUI);
@@ -846,6 +933,11 @@ extern "C" int32_t flipgb_app(void* p) {
                     }
                     furi_delay_ms(33);
                 }
+                /* the A/B press that operated the menu must not reach the
+                 * game; the request latch is cleared so held Up+Down (or
+                 * menu-navigation rollover) can't instantly reopen it */
+                app->keys_blocked = (uint8_t)(app->keys & (KBIT_A | KBIT_B));
+                app->menu_requested = false;
                 frame_deadline_us = 0;
                 last_now_ms = furi_get_tick();
                 continue;
@@ -867,11 +959,18 @@ extern "C" int32_t flipgb_app(void* p) {
             /* refresh the piezo with this frame's dominant APU voice */
             sound_update(app, false);
 
-            /* EMA of the cost of one emulated frame (x16 fixed point) */
-            app->emu_ms_ema += ((emu_ms << 4) - app->emu_ms_ema) / 8;
+            /* EMA of the cost of one emulated frame (x16 fixed point).
+             * MUST be signed: with unsigned arithmetic, any frame faster
+             * than the average underflowed the difference to ~4 billion,
+             * blowing the EMA up and pinning auto-frameskip at maximum. */
+            int32_t ema_diff = (int32_t)(emu_ms << 4) - (int32_t)app->emu_ms_ema;
+            app->emu_ms_ema = (uint32_t)((int32_t)app->emu_ms_ema + ema_diff / 8);
             uint32_t ema_ms = app->emu_ms_ema >> 4;
             app->auto_skip = ema_ms <= 17 ? 0 : (int)((ema_ms - 1) / 17);
-            if(app->auto_skip > 4) app->auto_skip = 4;
+            /* auto mode may skip harder than the fixed 0-4 settings: for
+             * heavy streamed games, correct game speed at a lower visible
+             * fps beats slow motion */
+            if(app->auto_skip > 8) app->auto_skip = 8;
 
             if(render_this && !app->menu_active) {
                 canvas_commit(canvas);
@@ -925,6 +1024,9 @@ extern "C" int32_t flipgb_app(void* p) {
     if(app->gb) {
         app->gb->~Gameboy(); /* placement-new counterpart */
         free(app->gb);
+        app->gb_mem = NULL;
+    } else if(app->gb_mem) {
+        free(app->gb_mem); /* rom_load reserved it but construction never ran */
     }
     rom_free(app);
     if(app->cart_ram) free(app->cart_ram);

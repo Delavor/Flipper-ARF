@@ -21,6 +21,7 @@ void Cartridge::init(
     bank_low = 1;
     bank_high = 0;
     ram_bank = 0;
+    cur_bank = 0xFFFFFFFFu;
 
     update_rom_bank();
 }
@@ -51,7 +52,24 @@ void Cartridge::update_rom_bank() {
 
     if(bank_count) bank %= bank_count;
 
-    bankN = provider(provider_ctx, bank);
+    /* Games (Pokemon's Bankswitch routine included) frequently rewrite the
+     * bank register with the bank that is already mapped: skip the cache
+     * lookups entirely in that case. */
+    if(bank == cur_bank) return;
+    cur_bank = bank;
+
+    /* map the lo 8 KB page now; the hi page streams in lazily on first
+     * read from 0x6000-0x7FFF (Cartridge::read) */
+    bankN_lo = provider(provider_ctx, bank * 2);
+    bankN_hi = nullptr;
+}
+
+void Cartridge::fetch_hi_page() const {
+    /* Refresh the lo page's LRU stamp first so the hi fetch can never
+     * evict it (the provider guarantees the two most recently returned
+     * pages are safe when the cache has >= 2 slots). */
+    bankN_lo = provider(provider_ctx, cur_bank * 2);
+    bankN_hi = provider(provider_ctx, cur_bank * 2 + 1);
 }
 
 void Cartridge::write(u16 addr, u8 value) {

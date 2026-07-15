@@ -2,19 +2,23 @@
 
 #include "definitions.h"
 
-/* Cartridge with pluggable ROM bank provider.
+/* Cartridge with pluggable ROM page provider.
  *
  * Instead of holding the whole ROM in RAM (impossible on Flipper Zero for
- * anything above 32 KB), the cartridge asks the platform for a pointer to a
- * 16 KB bank whenever the game switches banks. On the desktop test build the
- * provider just returns `rom + bank * 0x4000`; on the Flipper it is backed
- * by an LRU cache streaming from the SD card.
+ * anything above 32 KB), the cartridge asks the platform for pointers to
+ * 8 KB ROM pages (page n = ROM offset n * 0x2000) whenever the game
+ * switches banks. 8 KB granularity -- half a MBC bank -- doubles how many
+ * cache slots fit in the same RAM and halves the SD stall of a cache miss,
+ * which matters a lot for bank-switch heavy games (Pokemon switches banks
+ * for music/code/data every frame). On the desktop test build the provider
+ * just returns `rom + page * 0x2000`; on the Flipper it is backed by an
+ * LRU cache streaming from the SD card.
  *
  * Supported mappers: ROM only, MBC1 (incl. upper bits / mode select),
  * MBC2 (built-in 512x4 RAM), MBC3 (no RTC), MBC5.
  */
 
-using RomBankProvider = const u8* (*)(void* ctx, uint bank);
+using RomBankProvider = const u8* (*)(void* ctx, uint page);
 
 enum class MBCType : u8 {
     None,
@@ -39,7 +43,15 @@ public:
 
     auto read(u16 addr) const -> u8 {
         if(addr < 0x4000) return bank0[addr];
-        if(addr < 0x8000) return bankN[addr - 0x4000];
+        if(addr < 0x6000) return bankN_lo[addr - 0x4000];
+        if(addr < 0x8000) {
+            /* lazy: the hi half of a bank is only streamed in when the
+             * game actually reads 0x6000-0x7FFF from it. Many switches
+             * exist just to read a table at 0x4xxx; fetching both 8 KB
+             * pages eagerly doubled the SD misses of streamed games. */
+            if(!bankN_hi) fetch_hi_page();
+            return bankN_hi[addr - 0x6000];
+        }
         /* 0xA000 - 0xBFFF: cartridge RAM */
         return read_ram(addr);
     }
@@ -59,9 +71,12 @@ private:
     auto read_ram(u16 addr) const -> u8;
     void write_ram(u16 addr, u8 value);
     void update_rom_bank();
+    void fetch_hi_page() const;
 
     const u8* bank0 = nullptr;
-    const u8* bankN = nullptr;
+    mutable const u8* bankN_lo = nullptr; /* 0x4000 - 0x5FFF */
+    mutable const u8* bankN_hi = nullptr; /* 0x6000 - 0x7FFF, lazy (see read) */
+    uint cur_bank = 0xFFFFFFFFu; /* currently mapped bank (memo) */
 
     u8* ram = nullptr;
     u32 ram_size = 0;

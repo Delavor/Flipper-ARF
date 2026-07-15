@@ -28,7 +28,14 @@ struct ApuVoice {
 
 class Apu {
 public:
-    void tick(uint cycles);
+    /* Called once per emulated instruction; the fast path (powered off, or
+     * no sequencer step due) must stay inline and branch-cheap. One
+     * frame-sequencer step every 2048 M-cycles = 8192 T-cycles = 512 Hz. */
+    void tick(uint cycles) {
+        if(!power) return;
+        seq_counter += cycles;
+        if(seq_counter >= 2048) seq_run();
+    }
 
     /* 0xFF10 - 0xFF3F (sound registers + wave RAM) */
     auto read(u16 addr) const -> u8;
@@ -81,6 +88,7 @@ private:
     }
 
     void trigger(uint n);
+    void seq_run();
     void clock_lengths();
     void clock_envelopes();
     void clock_sweep();

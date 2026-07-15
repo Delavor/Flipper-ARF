@@ -61,6 +61,15 @@ public:
      * storage slot s starts at bit offset s * GAMEBOY_WIDTH * 2. */
     auto raw() const -> const u8* { return buf; }
 
+    /* Direct pointer to the packed bytes of screen row y (40 bytes,
+     * 4 pixels each, LSB-first) or nullptr if the row has no storage.
+     * Used by the byte-oriented renderer in video.cc. */
+    auto row_ptr(uint y) -> u8* {
+        uint slot = row_slot[y];
+        if(slot == NO_ROW) return nullptr;
+        return buf + slot * (GAMEBOY_WIDTH / 4);
+    }
+
 private:
     static const u8 NO_ROW = 0xFF;
 

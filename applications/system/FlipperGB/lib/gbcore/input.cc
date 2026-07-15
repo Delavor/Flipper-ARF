@@ -50,5 +50,6 @@ auto Input::get_input() const -> u8 {
     buttons = set_bit_to(buttons, 4, !direction_switch);
     buttons = set_bit_to(buttons, 5, !button_switch);
 
-    return buttons;
+    /* bits 6-7 are unwired and read as 1 on hardware */
+    return static_cast<u8>(buttons | 0xC0);
 }

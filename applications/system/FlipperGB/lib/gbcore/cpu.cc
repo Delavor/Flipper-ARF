@@ -29,18 +29,42 @@ void CPU::init_post_boot() {
 }
 
 auto CPU::tick() -> Cycles {
-    handle_interrupts();
+    /* STOP: the CPU core is frozen until joypad activity (notify_joypad).
+     * Interrupt flags raised meanwhile stay pending. */
+    if (stopped) { return 8; }
 
-    /* Halted: batch 4 M-cycles per iteration. Games spend most of every
+    /* Interrupt fast path: nothing pending for the enabled sources (the
+     * overwhelmingly common case) costs two loads and a branch. Bits 5-7
+     * of IF/IE are unwired on hardware and must be masked: without the
+     * mask, IF's always-set upper bits (post-boot 0xE1) against a game
+     * writing IE=0xFF would push PC without dispatching any vector. */
+    u8 fired = (u8)(interrupt_flag.value() & interrupt_enabled.value() & 0x1F);
+    if(fired) handle_interrupts(fired);
+
+    /* Halted: batch 8 M-cycles per iteration. Games spend most of every
      * frame in HALT waiting for vblank; stepping 1 cycle at a time made
      * the idle part of the frame as expensive to emulate as the busy part.
-     * Interrupt recognition is delayed by at most 3 M-cycles (12 T-cycles),
+     * Interrupt recognition is delayed by at most 7 M-cycles (28 T-cycles),
      * well within what real hardware tolerates. */
-    if (halted) { return 4; }
+    if (halted) { return 8; }
+
+    /* EI enables IME only AFTER the instruction that follows it. Without
+     * this delay, the classic pause idiom `EI / HALT` with an interrupt
+     * already pending dispatched BETWEEN the two: the ISR consumed the
+     * wake event, RETI returned onto the HALT, and the game slept with
+     * its wake condition already spent -- input appeared permanently dead
+     * while the vblank ISR (music) kept running. */
+    bool ei_was_pending = ime_pending;
 
     u16 opcode_pc = pc.value();
     auto opcode = get_byte_from_pc();
     auto cycles = execute_opcode(opcode, opcode_pc);
+
+    if(ei_was_pending && ime_pending) {
+        /* not cancelled by a DI in the delay slot */
+        interrupts_enabled = true;
+        ime_pending = false;
+    }
     return cycles;
 }
 
@@ -55,11 +79,8 @@ auto CPU::execute_opcode(const u8 opcode, u16 opcode_pc) -> Cycles {
     return execute_normal_opcode(opcode, opcode_pc);
 }
 
-void CPU::handle_interrupts() {
-    u8 fired_interrupts = interrupt_flag.value() & interrupt_enabled.value();
-    if (!fired_interrupts) { return; }
-
-    if (halted && fired_interrupts != 0x0) {
+void CPU::handle_interrupts(u8 fired_interrupts) {
+    if (halted) {
         // TODO: Handle halt bug
         halted = false;
     }
@@ -99,24 +120,9 @@ auto CPU::handle_interrupt(u8 interrupt_bit, u16 interrupt_vector, u8 fired_inte
     return true;
 }
 
-auto CPU::get_byte_from_pc() -> u8 {
-    u8 byte = gb.mmu.read(Address(pc));
-    pc.increment();
-
-    return byte;
-}
-
-auto CPU::get_signed_byte_from_pc() -> s8 {
-    u8 byte = get_byte_from_pc();
-    return static_cast<s8>(byte);
-}
-
-auto CPU::get_word_from_pc() -> u16 {
-    u8 low_byte = get_byte_from_pc();
-    u8 high_byte = get_byte_from_pc();
-
-    return compose_bytes(high_byte, low_byte);
-}
+/* get_byte_from_pc / get_signed_byte_from_pc / get_word_from_pc are the
+ * hottest functions in the emulator (every instruction fetches through
+ * them): they are defined inline at the bottom of gameboy.h. */
 
 void CPU::set_flag_zero(bool set) { f.set_flag_zero(set); }
 void CPU::set_flag_subtract(bool set) { f.set_flag_subtract(set); }
@@ -223,3 +229,11 @@ auto CPU::execute_cb_opcode(const u8 opcode, u16 opcode_pc) -> Cycles {
 
     return opcode_cycles_cb[opcode];
 }
+
+/* Unity build: the opcode implementations are compiled inside this same
+ * translation unit so the dispatch switches above can call (and inline)
+ * them directly. As separate TUs, every emulated instruction paid two
+ * cross-TU calls (dispatch -> opcode_XX -> opcode helper), which the
+ * compiler could not eliminate without LTO. */
+#include "opcode_mapping.inc"
+#include "opcodes.inc"

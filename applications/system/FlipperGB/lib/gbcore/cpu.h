@@ -52,13 +52,27 @@ public:
     ByteRegister interrupt_enabled;
 
 private:
-    void handle_interrupts();
+    void handle_interrupts(u8 fired_interrupts);
     auto handle_interrupt(u8 interrupt_bit, u16 interrupt_vector, u8 fired_interrupts) -> bool;
 
     Gameboy& gb;
 
     bool interrupts_enabled = false;
+    bool ime_pending = false; /* EI takes effect AFTER the next instruction */
     bool halted = false;
+    bool stopped = false; /* STOP: woken only by joypad activity */
+
+public:
+    /* Joypad line activity: wakes STOP unconditionally (real DMG behaviour:
+     * STOP exits on a joypad line change regardless of IE/IF/IME). */
+    void notify_joypad() {
+        if(stopped) {
+            stopped = false;
+            halted = false;
+        }
+    }
+
+private:
 
     bool branch_taken = false;
 

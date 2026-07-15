@@ -44,8 +44,10 @@ void Gameboy::vblank_trampoline(void* ctx) {
 void Gameboy::button_pressed(GbButton button) {
     input.button_pressed(button);
     /* Request the joypad interrupt (missing upstream); mainly wakes
-     * games waiting in HALT/STOP for input. */
+     * games waiting in HALT for input. */
     cpu.interrupt_flag.set_bit_to(4, true);
+    /* STOP wakes on joypad activity regardless of IE/IF/IME */
+    cpu.notify_joypad();
 }
 
 void Gameboy::button_released(GbButton button) {
@@ -53,15 +55,11 @@ void Gameboy::button_released(GbButton button) {
 }
 
 void Gameboy::run_to_vblank() {
+    /* Gameboy::tick and the peripheral ticks it calls are defined inline
+     * in gameboy.h, so this loop compiles into one flattened body with a
+     * single out-of-line call per instruction (cpu.tick). */
     frame_done = false;
     while(!frame_done) {
         tick();
     }
-}
-
-void Gameboy::tick() {
-    auto cycles = cpu.tick();
-    video.tick(cycles);
-    timer.tick(cycles.cycles);
-    apu.tick(cycles.cycles);
 }

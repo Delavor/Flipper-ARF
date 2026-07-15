@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "gameboy.h" /* inline hot-path definitions (operand fetch) */
 /* clang-format off */
 
 /**

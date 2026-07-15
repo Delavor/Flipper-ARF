@@ -94,6 +94,9 @@ void MMU::write(const Address& address, u8 byte) {
 }
 
 auto MMU::read_io(const Address& address) const -> u8 {
+    /* catch-up: make LY/STAT/DIV/TIMA/IF/NRxx exact before the game reads */
+    gb.sync_peripherals();
+
     u16 a = address.value();
 
     /* Sound registers + wave RAM */
@@ -167,6 +170,9 @@ auto MMU::read_io(const Address& address) const -> u8 {
 }
 
 void MMU::write_io(const Address& address, u8 byte) {
+    /* catch-up: apply pending time before the write changes IO state */
+    gb.sync_peripherals();
+
     u16 a = address.value();
 
     /* Sound registers + wave RAM */
