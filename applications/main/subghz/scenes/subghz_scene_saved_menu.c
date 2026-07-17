@@ -121,17 +121,7 @@ bool subghz_scene_saved_menu_on_event(void* context, SceneManagerEvent event) {
             scene_manager_set_scene_state(
                 subghz->scene_manager, SubGhzSceneSavedMenu, SubmenuIndexEmulate);
 
-            bool use_custom = subghz->last_settings->custom_car_emulate;
-            if(use_custom) {
-                FlipperFormat* fff = subghz_txrx_get_fff_data(subghz->txrx);
-                uint32_t cnt_tmp = 0;
-                flipper_format_rewind(fff);
-                if(!flipper_format_read_uint32(fff, "Cnt", &cnt_tmp, 1)) {
-                    use_custom = false;
-                }
-            }
-
-            if(use_custom) {
+            if(subghz->last_settings->custom_car_emulate) {
                 scene_manager_next_scene(subghz->scene_manager, SubGhzSceneCarEmulate);
             } else {
                 scene_manager_next_scene(subghz->scene_manager, SubGhzSceneTransmitter);
