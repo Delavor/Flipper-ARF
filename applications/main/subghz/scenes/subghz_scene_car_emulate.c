@@ -9,6 +9,7 @@
  */
 #include "../subghz_i.h"
 #include "../views/subghz_car_emulate.h"
+#include "../helpers/subghz_button_labels.h"
 #include "../helpers/subghz_custom_event.h"
 #include <lib/subghz/blocks/generic.h>
 #include <notification/notification_messages.h>
@@ -36,6 +37,7 @@ typedef struct {
 
     /* Resolved custom button repeated while the physical key is held */
     uint8_t  pending_button;
+    uint8_t  max_custom_button;
 } CarEmulateState;
 
 static CarEmulateState* s_state = NULL;
@@ -202,7 +204,7 @@ static void car_emulate_read_freq_preset(SubGhz* subghz, CarEmulateState* st) {
 }
 
 /** Update Btn and Cnt fields in fff_data so the transmitter re-serialises them. */
-static void car_emulate_apply_button(SubGhz* subghz, InputKey key) {
+static bool car_emulate_apply_button(SubGhz* subghz, InputKey key) {
     UNUSED(subghz);
 
     uint8_t custom_btn_id;
@@ -215,7 +217,11 @@ static void car_emulate_apply_button(SubGhz* subghz, InputKey key) {
     default:            custom_btn_id = SUBGHZ_CUSTOM_BTN_OK;    break;
     }
 
-    subghz_custom_btn_set(custom_btn_id);
+    if(custom_btn_id > s_state->max_custom_button) {
+        return false;
+    }
+
+    return subghz_custom_btn_set(custom_btn_id);
 }
 
 
@@ -367,13 +373,33 @@ void subghz_scene_car_emulate_on_enter(void* context) {
         flipper_format_rewind(fff);
     }
 
-        subghz_car_emulate_view_set_labels(
+    s_state->max_custom_button =
+        subghz_custom_btn_is_allowed() ? subghz_custom_btn_get_max() : SUBGHZ_CUSTOM_BTN_OK;
+
+    const char* button_labels[SUBGHZ_BUTTON_LABEL_COUNT];
+    subghz_button_labels_reset(button_labels);
+    subghz_button_labels_apply_protocol(s_state->protocol_name, button_labels);
+
+    subghz_car_emulate_view_set_labels(
         subghz->car_emulate_view,
-        "UNLOCK",       /* OK    */
-        "LOCK",         /* Up    */
-        "TRUNK",        /* Down  */
-        "PANIC",        /* Left  */
-        "START"         /* Right */
+        subghz_button_labels_get(
+            button_labels, SUBGHZ_CUSTOM_BTN_OK, subghz_custom_btn_get_original()),
+        s_state->max_custom_button >= SUBGHZ_CUSTOM_BTN_UP ?
+            subghz_button_labels_get(
+                button_labels, SUBGHZ_CUSTOM_BTN_UP, subghz_custom_btn_get_original()) :
+            "",
+        s_state->max_custom_button >= SUBGHZ_CUSTOM_BTN_DOWN ?
+            subghz_button_labels_get(
+                button_labels, SUBGHZ_CUSTOM_BTN_DOWN, subghz_custom_btn_get_original()) :
+            "",
+        s_state->max_custom_button >= SUBGHZ_CUSTOM_BTN_LEFT ?
+            subghz_button_labels_get(
+                button_labels, SUBGHZ_CUSTOM_BTN_LEFT, subghz_custom_btn_get_original()) :
+            "",
+        s_state->max_custom_button >= SUBGHZ_CUSTOM_BTN_RIGHT ?
+            subghz_button_labels_get(
+                button_labels, SUBGHZ_CUSTOM_BTN_RIGHT, subghz_custom_btn_get_original()) :
+            ""
     );
 
     car_emulate_read_freq_preset(subghz, s_state);
@@ -407,14 +433,18 @@ bool subghz_scene_car_emulate_on_event(void* context, SceneManagerEvent event) {
                 car_emulate_stop_tx(subghz);
             }
 
-            /* Bump counter */
-            s_state->current_counter++;
-
             /* Set the custom button BEFORE deserialize() is called inside
              * subghz_tx_start() → subghz_txrx_tx_start().
              * The protocol's deserialize() will call subghz_custom_btn_get()
              * to pick the right button code. */
-            car_emulate_apply_button(subghz, key);
+            if(!car_emulate_apply_button(subghz, key)) {
+                notification_message(subghz->notifications, &sequence_error);
+                car_emulate_refresh_view(subghz);
+                return true;
+            }
+
+            /* Bump counter */
+            s_state->current_counter++;
 
             /* Only update the counter in fff_data; the protocol handles Btn. */
             car_emulate_update_fff(subghz, s_state->current_counter);
