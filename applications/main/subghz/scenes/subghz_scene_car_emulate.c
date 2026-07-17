@@ -379,6 +379,13 @@ void subghz_scene_car_emulate_on_enter(void* context) {
 
     s_state->max_custom_button =
         subghz_custom_btn_is_allowed() ? subghz_custom_btn_get_max() : SUBGHZ_CUSTOM_BTN_OK;
+    if(s_state->max_custom_button == SUBGHZ_CUSTOM_BTN_OK) {
+        s_state->max_custom_button =
+            subghz_button_labels_get_max_custom_btn(s_state->protocol_name);
+        if(s_state->max_custom_button != SUBGHZ_CUSTOM_BTN_OK) {
+            subghz_custom_btn_set_max(s_state->max_custom_button);
+        }
+    }
 
     const char* button_labels[SUBGHZ_BUTTON_LABEL_COUNT];
     subghz_button_labels_reset(button_labels);

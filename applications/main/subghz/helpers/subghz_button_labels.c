@@ -17,45 +17,46 @@ static const char* const button_default_labels[SUBGHZ_BUTTON_LABEL_COUNT] = {
 
 typedef struct {
     const char* protocol;
+    uint8_t max_custom_btn;
     const char* labels[SUBGHZ_BUTTON_LABEL_COUNT];
 } SubGhzProtocolButtonLabels;
 
 static const SubGhzProtocolButtonLabels protocol_button_labels[] = {
-    {"VAG GROUP", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"Porsche AG", {"Original", "Lock", "Unlock", "Trunk", "Open"}},
-    {"FORD V0", {"Original", "Lock", "Unlock", "Trunk"}},
-    {"Ford V2", {"Unlock", "Lock", "Trunk", "Panic", "Remote Start"}},
-    {"PSA GROUP", {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
-    {"PSA OLD", {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
-    {"KIA/HYU V0", {"Original", "Lock", "Unlock", "Trunk", "Horn"}},
-    {"KIA/HYU V1", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"KIA/HYU V2", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"KIA/HYU V3", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
-    {"KIA/HYU V4", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
-    {"KIA/HYU V3/V4", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
-    {"KIA/HYU V5", {"Original", "Unlock", "Lock", "Trunk", "Horn"}},
-    {"KIA/HYU V6", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"SUBARU", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Extra"}},
-    {"SUZUKI", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"Star Line", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
-    {"Scher-Khan", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
-    {"Sheriff CFM", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"Nice FloR-S", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"CAME Atomo", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Alutech AT-4N", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"KeeLoq", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"Phoenix_V2", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"Beninca ARC", {"Original", "Btn 1", "Btn 2"}},
-    {"GangQi", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Hay21", {"Original", "Btn 1", "Btn 2"}},
-    {"Hollarm", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Jarolift", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"KingGates Stylo4k", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Princeton", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"Roger", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Security+ 2.0", {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
-    {"Somfy Telis", {"Original", "Btn 1", "Btn 2", "Btn 3"}},
-    {"Faac SLH", {"Original", "Btn 1"}},
+    {"VAG GROUP", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"Porsche AG", 4, {"Original", "Lock", "Unlock", "Trunk", "Open"}},
+    {"FORD V0", 3, {"Original", "Lock", "Unlock", "Trunk"}},
+    {"Ford V2", 4, {"Unlock", "Lock", "Trunk", "Panic", "Remote Start"}},
+    {"PSA GROUP", 4, {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
+    {"PSA OLD", 4, {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
+    {"KIA/HYU V0", 4, {"Original", "Lock", "Unlock", "Trunk", "Horn"}},
+    {"KIA/HYU V1", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"KIA/HYU V2", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"KIA/HYU V3", 5, {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
+    {"KIA/HYU V4", 5, {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
+    {"KIA/HYU V3/V4", 5, {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
+    {"KIA/HYU V5", 4, {"Original", "Unlock", "Lock", "Trunk", "Horn"}},
+    {"KIA/HYU V6", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"SUBARU", 5, {"Original", "Lock", "Unlock", "Trunk", "Panic", "Extra"}},
+    {"SUZUKI", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"Star Line", 4, {"Original", "Lock", "Unlock", "Trunk", "Start"}},
+    {"Scher-Khan", 4, {"Original", "Lock", "Unlock", "Trunk", "Start"}},
+    {"Sheriff CFM", 4, {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
+    {"Nice FloR-S", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"CAME Atomo", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Alutech AT-4N", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"KeeLoq", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"Phoenix_V2", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"Beninca ARC", 2, {"Original", "Btn 1", "Btn 2"}},
+    {"GangQi", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Hay21", 2, {"Original", "Btn 1", "Btn 2"}},
+    {"Hollarm", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Jarolift", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"KingGates Stylo4k", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Princeton", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"Roger", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Security+ 2.0", 4, {"Original", "Btn 1", "Btn 2", "Btn 3", "Btn 4"}},
+    {"Somfy Telis", 3, {"Original", "Btn 1", "Btn 2", "Btn 3"}},
+    {"Faac SLH", 1, {"Original", "Btn 1"}},
 };
 
 void subghz_button_labels_reset(const char* labels[SUBGHZ_BUTTON_LABEL_COUNT]) {
@@ -97,4 +98,16 @@ const char* subghz_button_labels_get(
     }
 
     return "Button";
+}
+
+uint8_t subghz_button_labels_get_max_custom_btn(const char* protocol) {
+    if(!protocol) return 0;
+
+    for(uint8_t i = 0; i < COUNT_OF(protocol_button_labels); i++) {
+        if(strcmp(protocol, protocol_button_labels[i].protocol) == 0) {
+            return protocol_button_labels[i].max_custom_btn;
+        }
+    }
+
+    return 0;
 }

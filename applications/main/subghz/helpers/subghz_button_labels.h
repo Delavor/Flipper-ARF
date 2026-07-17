@@ -19,6 +19,8 @@ const char* subghz_button_labels_get(
     uint8_t custom_btn_id,
     uint8_t original_custom_btn);
 
+uint8_t subghz_button_labels_get_max_custom_btn(const char* protocol);
+
 #ifdef __cplusplus
 }
 #endif
