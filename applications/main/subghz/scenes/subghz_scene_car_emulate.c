@@ -367,7 +367,11 @@ void subghz_scene_car_emulate_on_enter(void* context) {
     SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
     if(decoder && fff) {
         flipper_format_rewind(fff);
-        subghz_protocol_decoder_base_deserialize(decoder, fff);
+        if(subghz_protocol_decoder_base_deserialize(decoder, fff) == SubGhzProtocolStatusOk) {
+            FuriString* decoded_text = furi_string_alloc();
+            subghz_protocol_decoder_base_get_string(decoder, decoded_text);
+            furi_string_free(decoded_text);
+        }
         /* Rewind again so subsequent reads in car_emulate_read_freq_preset()
          * start from the beginning of the file. */
         flipper_format_rewind(fff);
