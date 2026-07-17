@@ -1,5 +1,6 @@
 #include "../subghz_i.h"
 #include "subghz/types.h"
+#include "../helpers/subghz_button_labels.h"
 #include "../helpers/subghz_custom_event.h"
 #include <lib/toolbox/value_index.h>
 #include <machine/endian.h>
@@ -81,18 +82,7 @@ static const uint8_t button_value[] = {
     7,
 };
 
-#define BUTTON_VALUE_COUNT (sizeof(button_value) / sizeof(button_value[0]))
-
-static const char* const button_default_labels[BUTTON_VALUE_COUNT] = {
-    "Original",
-    "Up",
-    "Down",
-    "Left",
-    "Right",
-    "Button 5",
-    "Button 6",
-    "Button 7",
-};
+#define BUTTON_VALUE_COUNT SUBGHZ_BUTTON_LABEL_COUNT
 
 static const char* button_labels[BUTTON_VALUE_COUNT] = {
     "Original",
@@ -103,30 +93,6 @@ static const char* button_labels[BUTTON_VALUE_COUNT] = {
     "Button 5",
     "Button 6",
     "Button 7",
-};
-
-typedef struct {
-    const char* protocol;
-    const char* labels[BUTTON_VALUE_COUNT];
-} ProtocolButtonLabels;
-
-static const ProtocolButtonLabels protocol_button_labels[] = {
-    {"VAG GROUP", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"Porsche AG", {"Original", "Lock", "Unlock", "Trunk", "Open"}},
-    {"FORD V0", {"Original", "Lock", "Unlock", "Trunk"}},
-    {"Ford V2", {"Unlock", "Lock", "Trunk", "Panic", "Remote Start"}},
-    {"PSA GROUP", {"Original", "Lock", "Unlock", "Trunk", "Trunk"}},
-    {"KIA/HYU V0", {"Original", "Lock", "Unlock", "Trunk", "Horn"}},
-    {"KIA/HYU V1", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"KIA/HYU V2", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"KIA/HYU V3/V4", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Horn"}},
-    {"KIA/HYU V5", {"Original", "Unlock", "Lock", "Trunk", "Horn"}},
-    {"KIA/HYU V6", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"SUBARU", {"Original", "Lock", "Unlock", "Trunk", "Panic", "Extra"}},
-    {"SUZUKI", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
-    {"Star Line", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
-    {"Scher-Khan", {"Original", "Lock", "Unlock", "Trunk", "Start"}},
-    {"Sheriff CFM", {"Original", "Lock", "Unlock", "Trunk", "Panic"}},
 };
 
 typedef struct {
@@ -146,35 +112,16 @@ static Protocols protocols[] = {
 #define PROTOCOLS_COUNT (sizeof(protocols) / sizeof(Protocols))
 
 static void subghz_scene_signal_settings_reset_button_labels(void) {
-    for(uint8_t i = 0; i < BUTTON_VALUE_COUNT; i++) {
-        button_labels[i] = button_default_labels[i];
-    }
+    subghz_button_labels_reset(button_labels);
 }
 
 static void subghz_scene_signal_settings_apply_button_labels(const char* protocol) {
-    for(uint8_t i = 0; i < COUNT_OF(protocol_button_labels); i++) {
-        if(strcmp(protocol, protocol_button_labels[i].protocol) == 0) {
-            for(uint8_t btn = 0; btn < BUTTON_VALUE_COUNT; btn++) {
-                if(protocol_button_labels[i].labels[btn]) {
-                    button_labels[btn] = protocol_button_labels[i].labels[btn];
-                }
-            }
-            break;
-        }
-    }
+    subghz_button_labels_apply_protocol(protocol, button_labels);
 }
 
 static const char* subghz_scene_signal_settings_get_button_label(uint8_t custom_btn_id) {
-    if(custom_btn_id == SUBGHZ_CUSTOM_BTN_OK) {
-        uint8_t original = subghz_custom_btn_get_original();
-        if((original != SUBGHZ_CUSTOM_BTN_OK) && (original < BUTTON_VALUE_COUNT)) {
-            return button_labels[original];
-        }
-    }
-    if(custom_btn_id < BUTTON_VALUE_COUNT) {
-        return button_labels[custom_btn_id];
-    }
-    return "Button";
+    return subghz_button_labels_get(
+        button_labels, custom_btn_id, subghz_custom_btn_get_original());
 }
 
 static bool subghz_scene_signal_settings_update_uint32_field(
