@@ -7,6 +7,7 @@ App(
         "lfrfid",
         "ibutton",
         "u2f",
+        "cli_onewire",
         "nfc",
         "subghz",
         "subghz_remote",
