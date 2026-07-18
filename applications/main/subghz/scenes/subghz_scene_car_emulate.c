@@ -250,6 +250,28 @@ static bool car_emulate_parse_hex_after(
     return true;
 }
 
+static bool car_emulate_serial_is_placeholder(void) {
+    return !s_state->has_serial || (s_state->serial <= 1);
+}
+
+static bool car_emulate_counter_is_placeholder(void) {
+    return !s_state->has_counter || (s_state->current_counter == 0);
+}
+
+static void car_emulate_set_counter(uint32_t value) {
+    s_state->original_counter = value;
+    s_state->current_counter = value;
+    s_state->has_counter = true;
+}
+
+static void car_emulate_apply_global_metadata(void) {
+    furi_assert(s_state);
+
+    if(subghz_block_generic_global.cnt_is_available) {
+        car_emulate_set_counter(subghz_block_generic_global.current_cnt);
+    }
+}
+
 static void car_emulate_apply_decoded_metadata(FuriString* decoded_text) {
     furi_assert(s_state);
     if(!decoded_text) return;
@@ -257,20 +279,24 @@ static void car_emulate_apply_decoded_metadata(FuriString* decoded_text) {
     const char* text = furi_string_get_cstr(decoded_text);
     uint32_t value = 0;
 
-    if(!s_state->has_serial &&
-       (car_emulate_parse_hex_after(text, "Sn:", &value) ||
+    if((car_emulate_parse_hex_after(text, "Sn:", &value) ||
         car_emulate_parse_hex_after(text, "SN:", &value) ||
         car_emulate_parse_hex_after(text, "Ser:", &value) ||
-        car_emulate_parse_hex_after(text, "Serial:", &value) ||
-        car_emulate_parse_hex_after(text, "Fix:", &value))) {
+        car_emulate_parse_hex_after(text, "Serial:", &value)) &&
+       (value != 0)) {
+        s_state->serial = value;
+        s_state->has_serial = true;
+    } else if(
+        car_emulate_serial_is_placeholder() &&
+        car_emulate_parse_hex_after(text, "Fix:", &value) &&
+        (value != 0)) {
         s_state->serial = value;
         s_state->has_serial = true;
     }
 
-    if(!s_state->has_counter && car_emulate_parse_hex_after(text, "Cnt:", &value)) {
-        s_state->original_counter = value;
-        s_state->current_counter = value;
-        s_state->has_counter = true;
+    if(car_emulate_parse_hex_after(text, "Cnt:", &value) &&
+       ((value != 0) || car_emulate_counter_is_placeholder())) {
+        car_emulate_set_counter(value);
     }
 }
 
@@ -435,6 +461,7 @@ void subghz_scene_car_emulate_on_enter(void* context) {
      *   - subghz_custom_btn_get_original() → the button that was in the file
      *   - subghz_custom_btn_is_allowed()   → true if protocol supports it
      *   - subghz_custom_btn_get_max()      → number of buttons available     */
+    subghz_block_generic_global_reset(NULL);
     subghz_custom_btns_reset();
 
     SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
@@ -443,6 +470,7 @@ void subghz_scene_car_emulate_on_enter(void* context) {
         if(subghz_protocol_decoder_base_deserialize(decoder, fff) == SubGhzProtocolStatusOk) {
             FuriString* decoded_text = furi_string_alloc();
             subghz_protocol_decoder_base_get_string(decoder, decoded_text);
+            car_emulate_apply_global_metadata();
             car_emulate_apply_decoded_metadata(decoded_text);
             furi_string_free(decoded_text);
         }
