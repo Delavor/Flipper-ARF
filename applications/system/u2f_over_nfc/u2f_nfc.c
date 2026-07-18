@@ -7,6 +7,7 @@
 #include <nfc/protocols/iso14443_4a/iso14443_4a_listener.h>
 #include <nfc/helpers/iso14443_crc.h>
 #include <nfc_device.h>
+#include <storage/storage.h>
 
 #define TAG "U2fNfc"
 
@@ -276,13 +277,23 @@ U2fNfc* u2f_nfc_start(U2fData* u2f_inst) {
     furi_assert(u2f_inst);
     FURI_LOG_D(TAG, "Init");
 
+    // The card template ships inside the .fap (fap_file_assets) but the
+    // firmware NFC stack only loads real files from the SD card, so copy it
+    // out to U2F_NFC_FILE the first time this runs.
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    if(!storage_file_exists(storage, U2F_NFC_FILE)) {
+        storage_common_copy(storage, APP_ASSETS_PATH("u2f/assets/u2f.nfc"), U2F_NFC_FILE);
+    }
+    furi_record_close(RECORD_STORAGE);
+
     U2fNfc* u2f_nfc = malloc(sizeof(U2fNfc));
     u2f_nfc->u2f_instance = u2f_inst;
     u2f_nfc->nfc = nfc_alloc();
     u2f_nfc->nfc_device = nfc_device_alloc();
     u2f_nfc->tx_buffer = bit_buffer_alloc(U2F_NFC_TX_BUFFER_SIZE);
 
-    nfc_device_load(u2f_nfc->nfc_device, U2F_NFC_FILE);
+    bool loaded = nfc_device_load(u2f_nfc->nfc_device, U2F_NFC_FILE);
+    furi_check(loaded, "Failed to load u2f.nfc card template");
     Iso14443_4aData* data =
         (Iso14443_4aData*)nfc_device_get_data(u2f_nfc->nfc_device, NfcProtocolIso14443_4a);
 
