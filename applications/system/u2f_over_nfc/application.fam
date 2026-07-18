@@ -1,0 +1,17 @@
+App(
+    appid="u2f_over_nfc",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="u2f_app",
+    fap_author="asalde_le1",
+    fap_category="NFC",
+    fap_description="U2F security key implementation over NFC",
+    fap_file_assets="resources",
+    fap_icon="icon.png",
+    fap_icon_assets="images",
+    fap_libs=["mbedtls"],
+    fap_version="1.0",
+    fap_weburl="https://github.com/asaldele1/u2f_over_nfc",
+    icon="A_U2F_14",
+    name="U2F over NFC",
+    stack_size=2 * 1024,
+)
