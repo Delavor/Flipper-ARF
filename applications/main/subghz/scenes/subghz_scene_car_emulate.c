@@ -15,6 +15,7 @@
 #include <notification/notification_messages.h>
 #include "../helpers/subghz_txrx_i.h"
 #include <lib/subghz/blocks/custom_btn_i.h>
+#include <string.h>
 
 #define TAG           "SubGhzSceneCarEmulate"
 #define MIN_TX_TICKS  66U   /* ~666 ms at 100 ms tick */
@@ -29,6 +30,9 @@ typedef struct {
     uint32_t current_counter;
     uint32_t freq;
     char     preset_short[12];  /* "AM650", "FM476", … */
+
+    bool     has_serial;
+    bool     has_counter;
 
     /* TX state */
     bool     is_transmitting;
@@ -203,6 +207,99 @@ static void car_emulate_read_freq_preset(SubGhz* subghz, CarEmulateState* st) {
     furi_string_free(preset_str);
 }
 
+static bool car_emulate_hex_digit(char c, uint8_t* value) {
+    if(c >= '0' && c <= '9') {
+        *value = c - '0';
+        return true;
+    } else if(c >= 'a' && c <= 'f') {
+        *value = c - 'a' + 10;
+        return true;
+    } else if(c >= 'A' && c <= 'F') {
+        *value = c - 'A' + 10;
+        return true;
+    }
+    return false;
+}
+
+static bool car_emulate_parse_hex_after(
+    const char* text,
+    const char* marker,
+    uint32_t* value) {
+    const char* field = strstr(text, marker);
+    if(!field) return false;
+
+    field += strlen(marker);
+    while(*field == ' ' || *field == '\t' || *field == '[') {
+        field++;
+    }
+    if(field[0] == '0' && (field[1] == 'x' || field[1] == 'X')) {
+        field += 2;
+    }
+
+    uint32_t parsed = 0;
+    uint8_t digits = 0;
+    uint8_t digit_value = 0;
+    while((digits < 8) && car_emulate_hex_digit(*field, &digit_value)) {
+        parsed = (parsed << 4) | digit_value;
+        digits++;
+        field++;
+    }
+
+    if(digits == 0) return false;
+    *value = parsed;
+    return true;
+}
+
+static bool car_emulate_serial_is_placeholder(void) {
+    return !s_state->has_serial || (s_state->serial <= 1);
+}
+
+static bool car_emulate_counter_is_placeholder(void) {
+    return !s_state->has_counter || (s_state->current_counter == 0);
+}
+
+static void car_emulate_set_counter(uint32_t value) {
+    s_state->original_counter = value;
+    s_state->current_counter = value;
+    s_state->has_counter = true;
+}
+
+static void car_emulate_apply_global_metadata(void) {
+    furi_assert(s_state);
+
+    if(subghz_block_generic_global.cnt_is_available) {
+        car_emulate_set_counter(subghz_block_generic_global.current_cnt);
+    }
+}
+
+static void car_emulate_apply_decoded_metadata(FuriString* decoded_text) {
+    furi_assert(s_state);
+    if(!decoded_text) return;
+
+    const char* text = furi_string_get_cstr(decoded_text);
+    uint32_t value = 0;
+
+    if((car_emulate_parse_hex_after(text, "Sn:", &value) ||
+        car_emulate_parse_hex_after(text, "SN:", &value) ||
+        car_emulate_parse_hex_after(text, "Ser:", &value) ||
+        car_emulate_parse_hex_after(text, "Serial:", &value)) &&
+       (value != 0)) {
+        s_state->serial = value;
+        s_state->has_serial = true;
+    } else if(
+        car_emulate_serial_is_placeholder() &&
+        car_emulate_parse_hex_after(text, "Fix:", &value) &&
+        (value != 0)) {
+        s_state->serial = value;
+        s_state->has_serial = true;
+    }
+
+    if(car_emulate_parse_hex_after(text, "Cnt:", &value) &&
+       ((value != 0) || car_emulate_counter_is_placeholder())) {
+        car_emulate_set_counter(value);
+    }
+}
+
 /** Update Btn and Cnt fields in fff_data so the transmitter re-serialises them. */
 static bool car_emulate_apply_button(SubGhz* subghz, InputKey key) {
     UNUSED(subghz);
@@ -337,7 +434,8 @@ void subghz_scene_car_emulate_on_enter(void* context) {
         }
 
         flipper_format_rewind(fff);
-        flipper_format_read_uint32(fff, "Serial", &s_state->serial, 1);
+        s_state->has_serial =
+            flipper_format_read_uint32(fff, "Serial", &s_state->serial, 1);
 
         flipper_format_rewind(fff);
         uint32_t btn_tmp = 0;
@@ -346,7 +444,8 @@ void subghz_scene_car_emulate_on_enter(void* context) {
         }
 
         flipper_format_rewind(fff);
-        flipper_format_read_uint32(fff, "Cnt", &s_state->original_counter, 1);
+        s_state->has_counter =
+            flipper_format_read_uint32(fff, "Cnt", &s_state->original_counter, 1);
         s_state->current_counter = s_state->original_counter;
 
         furi_string_free(tmp);
@@ -362,6 +461,7 @@ void subghz_scene_car_emulate_on_enter(void* context) {
      *   - subghz_custom_btn_get_original() → the button that was in the file
      *   - subghz_custom_btn_is_allowed()   → true if protocol supports it
      *   - subghz_custom_btn_get_max()      → number of buttons available     */
+    subghz_block_generic_global_reset(NULL);
     subghz_custom_btns_reset();
 
     SubGhzProtocolDecoderBase* decoder = subghz_txrx_get_decoder(subghz->txrx);
@@ -370,6 +470,8 @@ void subghz_scene_car_emulate_on_enter(void* context) {
         if(subghz_protocol_decoder_base_deserialize(decoder, fff) == SubGhzProtocolStatusOk) {
             FuriString* decoded_text = furi_string_alloc();
             subghz_protocol_decoder_base_get_string(decoder, decoded_text);
+            car_emulate_apply_global_metadata();
+            car_emulate_apply_decoded_metadata(decoded_text);
             furi_string_free(decoded_text);
         }
         /* Rewind again so subsequent reads in car_emulate_read_freq_preset()
