@@ -6,6 +6,7 @@ App(
         "gpio",
         "lfrfid",
         "ibutton",
+        "u2f",
         "nfc",
         "subghz",
         "subghz_remote",
