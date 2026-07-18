@@ -1,3 +1,10 @@
+/* Cold code: size-optimized on the embedded target. Every KB of binary
+ * is a KB of heap the ROM page cache loses (the FAP loads into RAM), and
+ * nothing in this file runs per-instruction. */
+#if defined(__arm__) && defined(__GNUC__)
+#pragma GCC optimize("Os")
+#endif
+
 #include "cartridge.h"
 
 void Cartridge::init(
@@ -37,6 +44,11 @@ void Cartridge::update_rom_bank() {
         bank = (bank_high << 5) | bank_low;
         /* bank_low == 0 is translated to 1 at write time */
         break;
+    case MBCType::MBC1M:
+        /* multicart wiring: only 4 low bits reach the ROM, the high
+         * register selects the sub-game */
+        bank = (bank_high << 4) | (bank_low & 0x0F);
+        break;
     case MBCType::MBC2:
     case MBCType::MBC3:
         bank = bank_low;
@@ -52,24 +64,22 @@ void Cartridge::update_rom_bank() {
 
     if(bank_count) bank %= bank_count;
 
-    /* Games (Pokemon's Bankswitch routine included) frequently rewrite the
-     * bank register with the bank that is already mapped: skip the cache
-     * lookups entirely in that case. */
+    /* Bank switching is FREE: quarters are unmapped and fetched lazily
+     * on first read. Games rewrite the bank register constantly without
+     * reading -- eager fetching here was ~86 phantom misses per frame. */
     if(bank == cur_bank) return;
     cur_bank = bank;
-
-    /* map the lo 8 KB page now; the hi page streams in lazily on first
-     * read from 0x6000-0x7FFF (Cartridge::read) */
-    bankN_lo = provider(provider_ctx, bank * 2);
-    bankN_hi = nullptr;
+    bankN_q[0] = bankN_q[1] = bankN_q[2] = bankN_q[3] = nullptr;
 }
 
-void Cartridge::fetch_hi_page() const {
-    /* Refresh the lo page's LRU stamp first so the hi fetch can never
-     * evict it (the provider guarantees the two most recently returned
-     * pages are safe when the cache has >= 2 slots). */
-    bankN_lo = provider(provider_ctx, cur_bank * 2);
-    bankN_hi = provider(provider_ctx, cur_bank * 2 + 1);
+void Cartridge::fetch_quarter(uint q) const {
+    /* Refresh the LRU stamps of the quarters already mapped so this
+     * fetch can never evict them (the provider protects the four most
+     * recently returned units; at most 3 are mapped when we get here). */
+    for(uint i = 0; i < 4; i++) {
+        if(bankN_q[i]) bankN_q[i] = provider(provider_ctx, cur_bank * 4 + i);
+    }
+    bankN_q[q] = provider(provider_ctx, cur_bank * 4 + q);
 }
 
 void Cartridge::write(u16 addr, u8 value) {
@@ -82,6 +92,7 @@ void Cartridge::write(u16 addr, u8 value) {
     case MBCType::None:
         return;
 
+    case MBCType::MBC1M:
     case MBCType::MBC1:
         if(addr < 0x2000) {
             ram_enabled = (value & 0x0F) == 0x0A;
@@ -127,7 +138,12 @@ void Cartridge::write(u16 addr, u8 value) {
              * reads return 0xFF via ram_bank marker) */
             ram_bank = value;
         } else {
-            /* RTC latch: unsupported */
+            /* RTC latch: writing 0x00 then 0x01 latches the clock */
+            if(rtc_present) {
+                if(value == 0x00) rtc.latch_armed = true;
+                else if(value == 0x01 && rtc.latch_armed) rtc_latch();
+                if(value != 0x00) rtc.latch_armed = false;
+            }
         }
         return;
 
@@ -158,11 +174,59 @@ auto Cartridge::read_ram(u16 addr) const -> u8 {
         return static_cast<u8>(ram[(addr - 0xA000) & 0x1FF] | 0xF0);
     }
 
-    if(mbc == MBCType::MBC3 && ram_bank > 0x03) return 0xFF; /* RTC regs */
+    if(mbc == MBCType::MBC3 && ram_bank > 0x03) {
+        if(rtc_present && ram_bank >= 0x08 && ram_bank <= 0x0C)
+            return rtc_read((u8)(ram_bank - 0x08));
+        return 0xFF;
+    }
 
     u32 idx = static_cast<u32>(addr - 0xA000) + static_cast<u32>(ram_bank & 0x0F) * 0x2000;
     if(idx >= ram_size) idx %= ram_size;
     return ram[idx];
+}
+
+auto Cartridge::rtc_seconds() const -> u32 {
+    if(rtc.halted || !rtc_now) return rtc.halt_value;
+    return rtc_now() - rtc.base;
+}
+
+void Cartridge::rtc_latch() {
+    u32 t = rtc_seconds();
+    rtc.latched[0] = (u8)(t % 60);
+    rtc.latched[1] = (u8)((t / 60) % 60);
+    rtc.latched[2] = (u8)((t / 3600) % 24);
+    u32 days = t / 86400;
+    rtc.latched[3] = (u8)(days & 0xFF);
+    rtc.latched[4] = (u8)(((days >> 8) & 1) | (rtc.halted ? 0x40 : 0) |
+                          (days > 511 ? 0x80 : 0));
+}
+
+auto Cartridge::rtc_read(u8 reg) const -> u8 {
+    static const u8 mask[5] = {0x3F, 0x3F, 0x1F, 0xFF, 0xC1};
+    return (u8)(rtc.latched[reg] | (u8)~mask[reg]); /* unused bits read 1 */
+}
+
+void Cartridge::rtc_write(u8 reg, u8 value) {
+    /* rebuild the counter from the current live values with one field
+     * replaced, then re-derive base */
+    u32 t = rtc_seconds();
+    u32 s = t % 60, m = (t / 60) % 60, h = (t / 3600) % 24, d = t / 86400;
+    switch(reg) {
+    case 0: s = value % 60; break;
+    case 1: m = value % 60; break;
+    case 2: h = value % 24; break;
+    case 3: d = (d & 0x100) | value; break;
+    case 4:
+        d = (d & 0xFF) | ((value & 1) << 8);
+        rtc.halted = (value & 0x40) != 0;
+        break;
+    }
+    u32 nt = ((d * 24 + h) * 60 + m) * 60 + s;
+    if(rtc.halted) {
+        rtc.halt_value = nt;
+    } else if(rtc_now) {
+        rtc.base = rtc_now() - nt;
+    }
 }
 
 void Cartridge::write_ram(u16 addr, u8 value) {
@@ -170,14 +234,20 @@ void Cartridge::write_ram(u16 addr, u8 value) {
 
     if(mbc == MBCType::MBC2) {
         ram[(addr - 0xA000) & 0x1FF] = value & 0x0F;
+        ram_written = true;
         return;
     }
 
-    if(mbc == MBCType::MBC3 && ram_bank > 0x03) return; /* RTC regs */
+    if(mbc == MBCType::MBC3 && ram_bank > 0x03) {
+        if(rtc_present && ram_bank >= 0x08 && ram_bank <= 0x0C)
+            rtc_write((u8)(ram_bank - 0x08), value);
+        return;
+    }
 
     u32 idx = static_cast<u32>(addr - 0xA000) + static_cast<u32>(ram_bank & 0x0F) * 0x2000;
     if(idx >= ram_size) idx %= ram_size;
     ram[idx] = value;
+    ram_written = true;
 }
 
 auto Cartridge::parse_mbc(u8 t) -> MBCType {

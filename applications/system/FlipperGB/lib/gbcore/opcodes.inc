@@ -342,9 +342,25 @@ void CPU::opcode_jr(Condition condition) {
 }
 
 
-/* HALT */
+/* HALT. DMG halt bug: entering HALT with IME=0 while an enabled
+ * interrupt is already pending does NOT halt -- instead the byte after
+ * HALT is executed twice (PC fails to advance once).
+ *
+ * CRITICAL: a pending EI (the `EI; HALT` idiom -- HALT executes inside
+ * EI's delay slot with IME still momentarily 0) is NOT the halt-bug
+ * case: IME rises right after HALT and the interrupt dispatches
+ * normally. Without the ime_pending check, the stale halt_bug flag
+ * survived into the dispatch and corrupted the ISR's first instruction
+ * fetch (PC reset made the operand re-read the opcode byte = wild
+ * jump): Mario wedged "walking right forever, music playing" after a
+ * few A presses. */
 void CPU::opcode_halt() {
-    halted = true;
+    if(!interrupts_enabled && !ime_pending &&
+       (interrupt_flag.value() & interrupt_enabled.value() & 0x1F)) {
+        halt_bug = true;
+    } else {
+        halted = true;
+    }
 }
 
 

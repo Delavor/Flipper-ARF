@@ -9,6 +9,7 @@ App(
         "subghz",
         "subghz_remote",
         "subghz_bruteforcer",
+        "infrared",
         "archive",
         "main_apps_on_start",
     ],

@@ -1,3 +1,10 @@
+/* Cold code: size-optimized on the embedded target. Every KB of binary
+ * is a KB of heap the ROM page cache loses (the FAP loads into RAM), and
+ * nothing in this file runs per-instruction. */
+#if defined(__arm__) && defined(__GNUC__)
+#pragma GCC optimize("Os")
+#endif
+
 #include "input.h"
 
 #include "bitwise.h"
@@ -31,21 +38,32 @@ void Input::write(u8 set) {
 auto Input::get_input() const -> u8 {
     using bitwise::set_bit_to;
 
-    u8 buttons = 0b1111;
+    /* with both matrix lines selected the nibbles combine (AND: pressed
+     * pulls low); the old code let the button nibble overwrite the
+     * direction nibble */
+    u8 dir = 0b1111, btn = 0b1111;
 
     if (direction_switch) {
-        buttons = set_bit_to(buttons, 0, !right);
-        buttons = set_bit_to(buttons, 1, !left);
-        buttons = set_bit_to(buttons, 2, !up);
-        buttons = set_bit_to(buttons, 3, !down);
+        /* opposite directions are mechanically impossible on the real
+         * d-pad rocker: if a frontend ever feeds both, show neither
+         * (games misbehave badly on impossible pad states) */
+        bool r = right, l = left, u = up, d = down;
+        if(r && l) r = l = false;
+        if(u && d) u = d = false;
+        dir = set_bit_to(dir, 0, !r);
+        dir = set_bit_to(dir, 1, !l);
+        dir = set_bit_to(dir, 2, !u);
+        dir = set_bit_to(dir, 3, !d);
     }
 
     if (button_switch) {
-        buttons = set_bit_to(buttons, 0, !a);
-        buttons = set_bit_to(buttons, 1, !b);
-        buttons = set_bit_to(buttons, 2, !select);
-        buttons = set_bit_to(buttons, 3, !start);
+        btn = set_bit_to(btn, 0, !a);
+        btn = set_bit_to(btn, 1, !b);
+        btn = set_bit_to(btn, 2, !select);
+        btn = set_bit_to(btn, 3, !start);
     }
+
+    u8 buttons = static_cast<u8>(dir & btn);
 
     buttons = set_bit_to(buttons, 4, !direction_switch);
     buttons = set_bit_to(buttons, 5, !button_switch);

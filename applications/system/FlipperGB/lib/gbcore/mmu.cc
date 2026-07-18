@@ -110,7 +110,10 @@ auto MMU::read_io(const Address& address) const -> u8 {
         return serial_data;
 
     case 0xFF02:
-        return 0xFF;
+        /* bit 7 reads 1 while a transfer is in flight; only bits 7 and 0
+         * are wired on DMG. The old hardwired 0xFF made SC look "busy
+         * forever" to games polling for completion. */
+        return static_cast<u8>(serial_control | 0x7E);
 
     case 0xFF04:
         return gb.timer.get_divider();
@@ -125,13 +128,14 @@ auto MMU::read_io(const Address& address) const -> u8 {
         return gb.timer.get_timer_control();
 
     case 0xFF0F:
-        return gb.cpu.interrupt_flag.value();
+        /* bits 5-7 are unwired and read as 1 */
+        return static_cast<u8>(gb.cpu.interrupt_flag.value() | 0xE0);
 
     case 0xFF40:
         return gb.video.control_byte;
 
     case 0xFF41:
-        return gb.video.lcd_status.value();
+        return static_cast<u8>(gb.video.lcd_status.value() | 0x80); /* bit 7 unwired */
 
     case 0xFF42:
         return gb.video.scroll_y.value();
@@ -140,7 +144,7 @@ auto MMU::read_io(const Address& address) const -> u8 {
         return gb.video.scroll_x.value();
 
     case 0xFF44:
-        return gb.video.line.value();
+        return gb.video.ly_read(); /* line-153 quirk: reads 0 */
 
     case 0xFF45:
         return gb.video.ly_compare.value();
@@ -191,10 +195,18 @@ void MMU::write_io(const Address& address, u8 byte) {
         return;
 
     case 0xFF02:
-        /* Serial control: transfer start with internal clock -> deliver
-         * the byte immediately (enough for link-less games and for the
-         * Blargg test ROMs which print through the serial port) */
-        if((byte & 0x81) == 0x81 && gb_serial_hook) gb_serial_hook(serial_data);
+        /* Serial control. A master transfer (internal clock) with no
+         * cable attached still completes on real hardware: 0xFF shifts
+         * in after 8 bit-clocks (4096 T-cycles = 1024 M-cycles at
+         * 8192 Hz) and the serial interrupt fires. Tetris's 2P handshake
+         * (Start at the title with 2 PLAYER selected) busy-waits on that
+         * interrupt: without it the game wedged forever. A slave start
+         * (0x80) never completes without a partner clock - correct. */
+        serial_control = byte & 0x81;
+        if((byte & 0x81) == 0x81) {
+            if(gb_serial_hook) gb_serial_hook(serial_data);
+            serial_clocks = 1024;
+        }
         return;
 
     case 0xFF04:
@@ -222,7 +234,9 @@ void MMU::write_io(const Address& address, u8 byte) {
         return;
 
     case 0xFF41:
-        gb.video.lcd_status.set(byte);
+        /* bits 0-2 (mode + coincidence) are read-only */
+        gb.video.lcd_status.set(
+            static_cast<u8>((byte & 0x78) | (gb.video.lcd_status.value() & 0x07)));
         return;
 
     case 0xFF42:
@@ -234,7 +248,7 @@ void MMU::write_io(const Address& address, u8 byte) {
         return;
 
     case 0xFF44:
-        gb.video.line.set(0x0);
+        /* LY is read-only on DMG (upstream reset it to 0) */
         return;
 
     case 0xFF45:

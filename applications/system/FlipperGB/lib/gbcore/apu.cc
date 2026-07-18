@@ -1,3 +1,10 @@
+/* Cold code: size-optimized on the embedded target. Every KB of binary
+ * is a KB of heap the ROM page cache loses (the FAP loads into RAM), and
+ * nothing in this file runs per-instruction. */
+#if defined(__arm__) && defined(__GNUC__)
+#pragma GCC optimize("Os")
+#endif
+
 #include "apu.h"
 
 /* Slow path of Apu::tick (see apu.h): runs the due frame-sequencer steps */

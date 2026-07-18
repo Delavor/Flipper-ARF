@@ -51,8 +51,39 @@ public:
     ByteRegister interrupt_flag;
     ByteRegister interrupt_enabled;
 
+    /* save-state support */
+    struct State {
+        u16 af, bc, de, hl, sp, pc;
+        u8 ime, ime_pend, halt, stop;
+    };
+    void export_state(State* s) const {
+        s->af = af.value();
+        s->bc = bc.value();
+        s->de = de.value();
+        s->hl = hl.value();
+        s->sp = sp.value();
+        s->pc = pc.value();
+        s->ime = interrupts_enabled;
+        s->ime_pend = ime_pending;
+        s->halt = halted;
+        s->stop = stopped;
+    }
+    void import_state(const State* s) {
+        af.set(s->af);
+        bc.set(s->bc);
+        de.set(s->de);
+        hl.set(s->hl);
+        sp.set(s->sp);
+        pc.set(s->pc);
+        interrupts_enabled = s->ime != 0;
+        ime_pending = s->ime_pend != 0;
+        halted = s->halt != 0;
+        stopped = s->stop != 0;
+        halt_bug = false;
+    }
+
 private:
-    void handle_interrupts(u8 fired_interrupts);
+    auto handle_interrupts(u8 fired_interrupts) -> bool; /* true = dispatched */
     auto handle_interrupt(u8 interrupt_bit, u16 interrupt_vector, u8 fired_interrupts) -> bool;
 
     Gameboy& gb;
@@ -61,6 +92,7 @@ private:
     bool ime_pending = false; /* EI takes effect AFTER the next instruction */
     bool halted = false;
     bool stopped = false; /* STOP: woken only by joypad activity */
+    bool halt_bug = false; /* HALT w/ IME=0 and pending IF&IE: PC repeats */
 
 public:
     /* Joypad line activity: wakes STOP unconditionally (real DMG behaviour:

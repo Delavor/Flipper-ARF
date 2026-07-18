@@ -51,6 +51,10 @@ Navigate with **Up/Down**, activate with **OK**, close with **Back**.
 | **Press SELECT** | Sends a Select press to the game and resumes |
 | **Frameskip** | Change with **Left/Right**: `auto` (recommended), or fixed `0–4`. `auto` shows the skip level currently in use |
 | **Sound** | Volume: cycle off/25/50/75/100% with **Left/Right**; **OK** toggles mute/full (`n/a` if the speaker is in use by another app) |
+| **Scale** | `fit` (whole screen, squashed) or `1:1 crop` (pixel-perfect center crop) |
+| **Dither** | `std` (2x2 ordered), `temporal` (alternating pattern: the LCD's slow pixels average it into perceived grayscale), `hi-con` (grays snap to black/white: crisper text) |
+| **OK hold** | `A+Start`: holding OK ~0.7 s also sends Start (off by default: interferes with games that hold A) |
+| **Save/Load state** | Instant save states (`.ss1` file next to the ROM) |
 | **Save SRAM** | Writes the cartridge battery save (`.sav`) to the SD card immediately |
 | **Exit** | Saves SRAM (if the cartridge has a battery) and quits the app |
 
@@ -141,10 +145,16 @@ bytes.
 - The PPU only renders the 64 scanlines (out of 144) that survive the
   downscale to the Flipper LCD — ~55% of the per-frame rendering work is
   skipped with zero visual difference.
-- ROM streaming works on 8 KB pages (half a MBC bank): twice the cache
-  slots per KB of heap and half the SD stall per miss compared to whole-bank
-  caching. Bank-switch heavy games may still micro-stutter on a cache miss
-  (only happens when the ROM doesn't fit in RAM).
+- ROM streaming works on lazily-mapped 4 KB units (quarter banks): bank
+  switching itself is free, and data is only fetched when actually read.
+  Measured on Pokemon Red: the game rewrites its bank register ~200x per
+  frame while reading from ~17 units — eager fetching caused ~86 phantom
+  cache misses per frame; the lazy design reduces that to ~1.
+- Input is read by polling the button GPIOs directly each frame: the OS
+  input-event service can be starved by a CPU-heavy game (a firmware
+  timer-daemon priority quirk) and used to wedge all input until reboot.
+- Frame pacing runs on an absolute 59.73 Hz tick grid with auto-frameskip
+  hysteresis: constant-velocity motion stays judder-free.
 - The emulator core is compiled `-O2` (the rest of the app stays `-Os`) and
   the per-instruction hot path (opcode fetch, PPU/timer/APU ticks) is
   manually inlined across the core, cutting per-instruction call overhead.
