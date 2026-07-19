@@ -1,0 +1,14 @@
+App(
+    appid="weather_chaos",
+    name="Weather Chaos",
+    apptype=FlipperAppType.EXTERNAL,
+    targets=["f7"],
+    entry_point="weather_station_app",
+    requires=["gui"],
+    stack_size=4 * 1024,
+    fap_description="Weather Station with fake sensor transmit (Nexus TH)",
+    fap_version="1.2",
+    fap_icon="weather_chaos_10px.png",
+    fap_category="Sub-GHz",
+    fap_icon_assets="images",
+)
