@@ -28,6 +28,7 @@ public:
     }
 
     auto vram_read(u16 offset) const -> u8 { return video_ram[offset]; }
+    auto vram_ptr() -> u8* { return video_ram; } /* save states */
     void vram_write(u16 offset, u8 value) { video_ram[offset] = value; }
 
     /* When true, scanline/sprite rendering work is skipped (frame skip);
@@ -70,14 +71,14 @@ public:
 
 private:
     void write_scanline(u8 current_line);
-    void write_sprites();
+    void draw_sprites_line(uint current_line);
     void draw();
     void mode_transition_vram_end();
+    void check_lyc();
     void mode_transition_hblank_end();
     void mode_transition_vblank_line();
     void draw_bg_line(uint current_line);
     void draw_window_line(uint current_line);
-    void draw_sprite(uint sprite_n);
     void render_strip(
         u8* dst_row,
         uint dst_x,
@@ -112,6 +113,26 @@ private:
     u8 bgp_lut_cached_for = 0;
     bool bgp_lut_valid = false;
 
+    /* window internal line counter (per frame, advances only on lines
+     * where the window is actually shown) */
+    uint window_line = 0;
+
+public:
+    /* LY as the CPU sees it (line 153 reads 0 for most of its duration) */
+    auto ly_read() const -> u8 {
+        u8 v = line.value();
+        return v == 153 ? 0 : v;
+    }
+    /* save-state accessors */
+    auto get_mode() const -> u8 { return (u8)current_mode; }
+    auto get_cycle_counter() const -> uint { return cycle_counter; }
+    void set_state(u8 ly, u8 mode, uint counter) {
+        line.set(ly);
+        current_mode = (VideoMode)(mode & 3);
+        cycle_counter = counter;
+    }
+
+private:
     u8 video_ram[0x2000] = {}; /* DMG: 8 KB (was 16 KB upstream) */
 
     VideoMode current_mode = VideoMode::ACCESS_OAM;

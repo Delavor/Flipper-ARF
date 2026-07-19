@@ -20,7 +20,17 @@ public:
     /* Only the bottom three bits of this register are usable */
     auto get_timer_control() const -> u8 { return timer_control.value() & 0x7; }
 
-    void reset_divider() { divider.set(0x0); }
+    void reset_divider() {
+        /* DIV writes reset the shared prescaler: TIMA phase resets too */
+        divider.set(0x0);
+        div_clocks = 0;
+        clocks = 0;
+    }
+    /* save-state accessors */
+    void set_counters(uint c, uint d) { clocks = c; div_clocks = d; }
+    auto get_clocks() const -> uint { return clocks; }
+    auto get_div_clocks() const -> uint { return div_clocks; }
+    void set_divider_raw(u8 v) { divider.set(v); }
     void set_timer(u8 value) { timer_counter.set(value); }
     void set_timer_modulo(u8 value) { timer_modulo.set(value); }
     void set_timer_control(u8 value) { timer_control.set(value); }

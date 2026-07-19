@@ -11,23 +11,27 @@ using bitwise::check_bit;
 /* s_tile_lut[b] spreads the 8 bits of a tile-data byte into 8 2-bit pixel
  * fields, leftmost pixel (bit 7) in the LOWEST field -- the same LSB-first
  * packing the framebuffer uses, so whole bytes can be emitted directly.
- * s_tile_lut_rev is the X-flipped variant for sprites. 1 KB total. */
+ * X-flipped sprites bit-reverse the tile bytes first (cheaper than a
+ * second 512-byte LUT: this binary is RAM on the Flipper). */
 static u16 s_tile_lut[256];
-static u16 s_tile_lut_rev[256];
 static bool s_luts_ready = false;
+
+static inline u8 bitrev8(u8 b) {
+    b = (u8)((b >> 4) | (b << 4));
+    b = (u8)(((b & 0xCC) >> 2) | ((b & 0x33) << 2));
+    b = (u8)(((b & 0xAA) >> 1) | ((b & 0x55) << 1));
+    return b;
+}
 
 Video::Video(Gameboy& inGb)
     : gb(inGb) {
     if(!s_luts_ready) {
         for(uint b = 0; b < 256; b++) {
-            u16 fwd = 0, rev = 0;
+            u16 fwd = 0;
             for(uint k = 0; k < 8; k++) {
-                u16 bit = (u16)((b >> (7 - k)) & 1);
-                fwd |= (u16)(bit << (2 * k));
-                rev |= (u16)(bit << (2 * (7 - k)));
+                fwd |= (u16)(((b >> (7 - k)) & 1) << (2 * k));
             }
             s_tile_lut[b] = fwd;
-            s_tile_lut_rev[b] = rev;
         }
         s_luts_ready = true;
     }
@@ -35,7 +39,7 @@ Video::Video(Gameboy& inGb)
 
 /* Palette LUT: maps a packed 2bpp byte (4 pixels) through BGP in one
  * lookup. Rebuilt only when the game writes a new BGP value. */
-auto Video::bg_pal_lut() -> const u8* {
+__attribute__((optimize("Os"))) auto Video::bg_pal_lut() -> const u8* {
     u8 bgp = bg_palette.value();
     if(!bgp_lut_valid || bgp != bgp_lut_cached_for) {
         u8 shade[4] = {
@@ -59,29 +63,33 @@ auto Video::bg_pal_lut() -> const u8* {
  * inline definition at the bottom of gameboy.h. Mode-transition work
  * (rendering, interrupts) stays out-of-line in this file. */
 
-void Video::mode_transition_vram_end() {
+__attribute__((optimize("Os"))) void Video::mode_transition_vram_end() {
     current_mode = VideoMode::HBLANK;
 
-    bool hblank_interrupt = check_bit(lcd_status.value(), 3);
-
-    if(hblank_interrupt) {
-        gb.cpu.interrupt_flag.set_bit_to(1, true);
+    if(check_bit(lcd_status.value(), 3)) {
+        gb.cpu.interrupt_flag.set_bit_to(1, true); /* hblank STAT */
     }
-
-    bool ly_coincidence_interrupt = check_bit(lcd_status.value(), 6);
-    bool ly_coincidence = ly_compare.value() == line.value();
-    if(ly_coincidence_interrupt && ly_coincidence) {
-        gb.cpu.interrupt_flag.set_bit_to(1, true);
-    }
-    lcd_status.set_bit_to(2, ly_coincidence);
 
     lcd_status.set_bit_to(1, false);
     lcd_status.set_bit_to(0, false);
 }
 
-void Video::mode_transition_hblank_end() {
+/* LY=LYC is evaluated when a line BEGINS (hardware: during mode 2 / OAM
+ * scan). Firing it at the end of the line -- as upstream did -- made
+ * games' raster effects (dmg-acid2 uses LYC IRQs to change WX/LCDC on
+ * exact rows) apply one line late. */
+__attribute__((optimize("Os"))) void Video::check_lyc() {
+    bool eq = ly_compare.value() == line.value();
+    if(eq && check_bit(lcd_status.value(), 6)) {
+        gb.cpu.interrupt_flag.set_bit_to(1, true);
+    }
+    lcd_status.set_bit_to(2, eq);
+}
+
+__attribute__((optimize("Os"))) void Video::mode_transition_hblank_end() {
     if(!skip_render) write_scanline(line.value());
     line.increment();
+    check_lyc(); /* new line starts here */
 
     /* Line 145 (index 144) is the first line of VBLANK */
     if(line == 144) {
@@ -96,27 +104,24 @@ void Video::mode_transition_hblank_end() {
     }
 }
 
-void Video::mode_transition_vblank_line() {
+__attribute__((optimize("Os"))) void Video::mode_transition_vblank_line() {
     line.increment();
 
-    /* LY=LYC STAT interrupt must also fire for lines 144-153: games that
-     * wait for a coincidence inside vblank hung without this (it was only
-     * evaluated at the mode3->hblank transition of visible lines) */
-    if(check_bit(lcd_status.value(), 6) && ly_compare.value() == line.value()) {
-        gb.cpu.interrupt_flag.set_bit_to(1, true);
-    }
-    lcd_status.set_bit_to(2, ly_compare.value() == line.value());
+    /* LY=LYC also fires for vblank lines 145-153 (games wait on it).
+     * Line 154 is transient (LY wraps to 0) and never matches. */
+    if(line.value() < 154) check_lyc();
 
     /* Line 155 (index 154) is the last line */
     if(line == 154) {
         if(!skip_render) {
-            write_sprites();
             draw();
             buffer.reset();
         } else {
             draw(); /* still notify the frontend for pacing */
         }
         line.reset();
+        window_line = 0; /* the window's internal line counter is per-frame */
+        check_lyc(); /* line 0 begins */
         current_mode = VideoMode::ACCESS_OAM;
         lcd_status.set_bit_to(1, true);
         lcd_status.set_bit_to(0, false);
@@ -165,15 +170,12 @@ void Video::write_scanline(u8 current_line) {
     if(window_enabled()) {
         draw_window_line(current_line);
     }
-}
 
-void Video::write_sprites() {
-    if(!sprites_enabled()) {
-        return;
-    }
-
-    for(uint sprite_n = 0; sprite_n < 40; sprite_n++) {
-        draw_sprite(sprite_n);
+    /* Sprites are composited per scanline like hardware: mid-frame raster
+     * changes to OBP/LCDC (object size/enable) apply to the correct rows
+     * (dmg-acid2 exercises this), and only displayed lines pay the cost. */
+    if(sprites_enabled()) {
+        draw_sprites_line(current_line);
     }
 }
 
@@ -284,23 +286,27 @@ void Video::draw_window_line(uint current_line) {
     bool use_tile_set_zero = bg_window_tile_data();
     bool use_tile_map_zero = !window_tile_map();
 
-    uint scrolled_y = current_line - window_y.value();
-    if(scrolled_y >= GAMEBOY_HEIGHT) {
-        return;
-    }
+    /* the window only starts once LY reaches WY */
+    if(current_line < window_y.value()) return;
 
-    /* the window covers screen pixels from WX-7 onward, sourcing the
-     * window map from column 0 */
+    /* WX off-screen hides the window for this line WITHOUT advancing its
+     * internal line counter: when it reappears, drawing resumes from the
+     * next window row, not from LY-WY (dmg-acid2 "chin" behaviour) */
     uint wx = window_x.value();
+    if(wx > 166) return;
     uint start_x = wx >= 7 ? wx - 7 : 0;
     if(start_x >= GAMEBOY_WIDTH) return;
 
+    uint src_row = window_line; /* internal per-frame counter */
+    if(src_row >= 256) return;
+    window_line++; /* the counter advances on every line the window shows */
+
     u8* dst = buffer.row_ptr(current_line);
-    if(!dst) return;
+    if(!dst) return; /* row not displayed: counter still advanced above */
 
     uint map_row_base = (use_tile_map_zero ? (TILE_MAP_ZERO_ADDRESS - 0x8000) :
                                              (TILE_MAP_ONE_ADDRESS - 0x8000)) +
-                        (scrolled_y / TILE_HEIGHT_PX) * TILES_PER_LINE;
+                        ((src_row / TILE_HEIGHT_PX) & 31) * TILES_PER_LINE;
 
     render_strip(
         dst,
@@ -308,85 +314,93 @@ void Video::draw_window_line(uint current_line) {
         GAMEBOY_WIDTH - start_x,
         map_row_base,
         wx >= 7 ? 0 : 7 - wx,
-        (scrolled_y % TILE_HEIGHT_PX) * 2,
+        (src_row % TILE_HEIGHT_PX) * 2,
         use_tile_set_zero,
         bg_pal_lut());
 }
 
-void Video::draw_sprite(const uint sprite_n) {
-    /* Each sprite is represented by 4 bytes */
-    u16 oam_start = static_cast<u16>(sprite_n * SPRITE_BYTES);
-
-    u8 sprite_y = gb.mmu.oam_ram[oam_start];
-    u8 sprite_x = gb.mmu.oam_ram[oam_start + 1];
-
-    /* Offscreen sprites are not drawn */
-    if(sprite_y == 0 || sprite_y >= 160) {
-        return;
-    }
-    if(sprite_x == 0 || sprite_x >= 168) {
-        return;
-    }
-
+void Video::draw_sprites_line(uint current_line) {
     uint sprite_height = sprite_size() ? 16 : 8;
 
-    u8 pattern_n = gb.mmu.oam_ram[oam_start + 2];
-    u8 sprite_attrs = gb.mmu.oam_ram[oam_start + 3];
+    /* hardware OAM scan: the first 10 sprites (in OAM order) covering
+     * this line are selected */
+    u8 sel[10];
+    uint nsel = 0;
+    for(uint n = 0; n < 40 && nsel < 10; n++) {
+        int sy = (int)gb.mmu.oam_ram[n * 4] - 16;
+        if((int)current_line >= sy && (int)current_line < sy + (int)sprite_height) {
+            sel[nsel++] = (u8)n;
+        }
+    }
+    if(nsel == 0) return;
 
-    /* Bits 0-3 are used only for CGB */
-    bool use_palette_1 = check_bit(sprite_attrs, 4);
-    bool flip_x = check_bit(sprite_attrs, 5);
-    bool flip_y = check_bit(sprite_attrs, 6);
-    bool obj_behind_bg = check_bit(sprite_attrs, 7);
+    u8* row = buffer.row_ptr(current_line);
+    if(!row) return;
 
-    /* 4-entry shade table instead of a per-pixel palette switch */
-    u8 obp = use_palette_1 ? sprite_palette_1.value() : sprite_palette_0.value();
-    u8 shade[4] = {
-        (u8)(obp & 0x3),
-        (u8)((obp >> 2) & 0x3),
-        (u8)((obp >> 4) & 0x3),
-        (u8)((obp >> 6) & 0x3),
-    };
+    /* draw in reverse priority order so the winner is painted last:
+     * lower X wins overlaps, ties broken by lower OAM index */
+    for(uint i = 1; i < nsel; i++) { /* insertion sort by X descending */
+        u8 v = sel[i];
+        u8 vx = gb.mmu.oam_ram[v * 4 + 1];
+        uint j = i;
+        while(j > 0 && gb.mmu.oam_ram[sel[j - 1] * 4 + 1] < vx) {
+            sel[j] = sel[j - 1];
+            j--;
+        }
+        sel[j] = v;
+    }
 
-    uint tile_offset = pattern_n * TILE_BYTES;
+    for(uint i = 0; i < nsel; i++) {
+        uint n = sel[i];
+        u16 oam = (u16)(n * 4);
+        u8 sprite_y = gb.mmu.oam_ram[oam];
+        u8 sprite_x = gb.mmu.oam_ram[oam + 1];
+        if(sprite_x == 0 || sprite_x >= 168) continue; /* off-screen */
 
-    int start_y = sprite_y - 16;
-    int start_x = sprite_x - 8;
+        u8 pattern_n = gb.mmu.oam_ram[oam + 2];
+        u8 attrs = gb.mmu.oam_ram[oam + 3];
+        bool use_palette_1 = check_bit(attrs, 4);
+        bool flip_x = check_bit(attrs, 5);
+        bool flip_y = check_bit(attrs, 6);
+        bool obj_behind_bg = check_bit(attrs, 7);
 
-    const u16* lut = flip_x ? s_tile_lut_rev : s_tile_lut;
+        /* in 8x16 mode the hardware ignores bit 0 of the tile id */
+        if(sprite_height == 16) pattern_n &= 0xFE;
 
-    for(uint y = 0; y < sprite_height; y++) {
-        int screen_y = start_y + static_cast<int>(y);
-        if(screen_y < 0 || screen_y >= static_cast<int>(GAMEBOY_HEIGHT)) continue;
-        if(row_mask && !row_mask[screen_y]) continue;
+        u8 obp = use_palette_1 ? sprite_palette_1.value() : sprite_palette_0.value();
+        u8 shade[4] = {
+            (u8)(obp & 0x3),
+            (u8)((obp >> 2) & 0x3),
+            (u8)((obp >> 4) & 0x3),
+            (u8)((obp >> 6) & 0x3),
+        };
 
-        u8* row = buffer.row_ptr(static_cast<uint>(screen_y));
-        if(!row) continue;
+        uint y = current_line - (uint)(sprite_y - 16);
+        uint src_y = flip_y ? sprite_height - 1 - y : y;
+        uint line_addr = pattern_n * TILE_BYTES + src_y * 2;
 
-        uint src_y = !flip_y ? y : sprite_height - y - 1;
+        u8 b1 = video_ram[line_addr];
+        u8 b2 = video_ram[line_addr + 1];
+        if(flip_x) {
+            b1 = bitrev8(b1);
+            b2 = bitrev8(b2);
+        }
+        u16 v = (u16)(s_tile_lut[b1] | (s_tile_lut[b2] << 1));
+        if(v == 0) continue; /* fully transparent row */
 
-        uint line_addr = tile_offset + src_y * 2; /* relative to tile set zero */
-
-        /* all 8 pixel colors of this sprite row, LSB-first left-to-right
-         * (flip handled by the reversed LUT) */
-        u16 v = (u16)(lut[video_ram[line_addr]] | (lut[video_ram[line_addr + 1]] << 1));
-        if(v == 0) continue; /* fully transparent row: common, skip */
-
+        int start_x = (int)sprite_x - 8;
         for(uint x = 0; x < TILE_WIDTH_PX; x++, v >>= 2) {
             uint color = v & 3;
-            if(color == 0) continue; /* color 0 is transparent */
+            if(color == 0) continue; /* transparent */
 
-            int screen_x = start_x + static_cast<int>(x);
-            if(screen_x < 0 || screen_x >= static_cast<int>(GAMEBOY_WIDTH)) continue;
+            int screen_x = start_x + (int)x;
+            if(screen_x < 0 || screen_x >= (int)GAMEBOY_WIDTH) continue;
 
             uint sh = ((uint)screen_x & 3) * 2;
             u8* p = row + ((uint)screen_x >> 2);
 
-            /* Note: same behaviour as upstream - the priority bit compares
-             * the final shade rather than the logical color 0 */
-            if(obj_behind_bg && ((*p >> sh) & 3) != SHADE_WHITE) {
-                continue;
-            }
+            /* same as upstream: priority compares the final shade */
+            if(obj_behind_bg && ((*p >> sh) & 3) != SHADE_WHITE) continue;
 
             *p = (u8)((*p & ~(3u << sh)) | (shade[color] << sh));
         }

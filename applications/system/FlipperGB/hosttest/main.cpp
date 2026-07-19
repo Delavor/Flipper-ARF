@@ -29,9 +29,9 @@ static void serial_hook(u8 byte) {
     }
 }
 
-static const u8* bank_provider(void* /*ctx*/, uint page) {
-    long offset = static_cast<long>(page) * 0x2000; /* 8 KB ROM pages */
-    if(offset + 0x2000 > g_rom_size) offset = 0;
+static const u8* bank_provider(void* /*ctx*/, uint unit) {
+    long offset = static_cast<long>(unit) * 0x1000; /* 4 KB ROM units */
+    if(offset + 0x1000 > g_rom_size) offset = 0;
     return g_rom + offset;
 }
 
@@ -99,11 +99,31 @@ int main(int argc, char** argv) {
     bool rowmask = false;
     bool dump_audio = false;
     bool skiprender = false;
+    /* input script: --press <frame>:<BTN>:<hold_frames>, repeatable */
+    struct ScriptPress { long frame; GbButton btn; long hold; };
+    ScriptPress script[32];
+    int nscript = 0;
     for(int i = 1; i < argc; i++) {
         if(!strcmp(argv[i], "--dump-frame")) dump = true;
         if(!strcmp(argv[i], "--rowmask")) rowmask = true;
         if(!strcmp(argv[i], "--dump-audio")) dump_audio = true;
         if(!strcmp(argv[i], "--skiprender")) skiprender = true;
+        if(!strcmp(argv[i], "--press") && i + 1 < argc && nscript < 32) {
+            char name[16];
+            long fr, hold;
+            if(sscanf(argv[++i], "%ld:%15[^:]:%ld", &fr, name, &hold) == 3) {
+                GbButton b = GbButton::A;
+                if(!strcmp(name, "A")) b = GbButton::A;
+                else if(!strcmp(name, "B")) b = GbButton::B;
+                else if(!strcmp(name, "START")) b = GbButton::Start;
+                else if(!strcmp(name, "SELECT")) b = GbButton::Select;
+                else if(!strcmp(name, "UP")) b = GbButton::Up;
+                else if(!strcmp(name, "DOWN")) b = GbButton::Down;
+                else if(!strcmp(name, "LEFT")) b = GbButton::Left;
+                else if(!strcmp(name, "RIGHT")) b = GbButton::Right;
+                script[nscript++] = {fr, b, hold};
+            }
+        }
     }
 
     /* Same 144 -> 64 line subsampling the Flipper frontend uses */
@@ -155,6 +175,10 @@ int main(int argc, char** argv) {
     u8 last_vol = 0;
 
     for(long frame = 0; frame < max_frames; frame++) {
+        for(int i = 0; i < nscript; i++) {
+            if(script[i].frame == frame) gb->button_pressed(script[i].btn);
+            if(script[i].frame + script[i].hold == frame) gb->button_released(script[i].btn);
+        }
         gb->run_to_vblank();
 
         if(dump_audio) {

@@ -3,7 +3,7 @@ App(
     name="FlipGB",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="flipgb_app",
-    sources=["*.c*", "!hosttest", "!lib"],
+    sources=["*.c*", "!hosttest", "!lib", "!tests"],
     requires=["gui", "dialogs", "storage"],
     stack_size=8 * 1024,
     cdefines=[("GB_FB_ROWS", "64")],
@@ -21,6 +21,6 @@ App(
     fap_category="Games",
     fap_icon="flipgb_icon.png",
     fap_author="user",
-    fap_version="1.0",
+    fap_version="5.1",
     fap_description="Game Boy (DMG) emulator. Loads .gb ROMs from the SD card, streams ROM banks, battery saves, adaptive frameskip.",
 )

@@ -43,15 +43,16 @@ void Gameboy::vblank_trampoline(void* ctx) {
 
 void Gameboy::button_pressed(GbButton button) {
     input.button_pressed(button);
-    /* Request the joypad interrupt (missing upstream); mainly wakes
-     * games waiting in HALT for input. */
-    cpu.interrupt_flag.set_bit_to(4, true);
-    /* STOP wakes on joypad activity regardless of IE/IF/IME */
+    /* Joypad interrupt: hardware only triggers for currently selected
+     * P1 matrix lines. Mainly wakes games waiting in HALT for input. */
+    if(input.line_selected(button)) cpu.interrupt_flag.set_bit_to(4, true);
+    /* STOP wakes on any joypad line activity regardless of IE/IF/IME */
     cpu.notify_joypad();
 }
 
 void Gameboy::button_released(GbButton button) {
     input.button_released(button);
+    cpu.notify_joypad(); /* STOP wakes on any line CHANGE, release included */
 }
 
 void Gameboy::run_to_vblank() {

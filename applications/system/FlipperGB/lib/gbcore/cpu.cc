@@ -39,7 +39,11 @@ auto CPU::tick() -> Cycles {
      * mask, IF's always-set upper bits (post-boot 0xE1) against a game
      * writing IE=0xFF would push PC without dispatching any vector. */
     u8 fired = (u8)(interrupt_flag.value() & interrupt_enabled.value() & 0x1F);
-    if(fired) handle_interrupts(fired);
+    if(fired) {
+        /* an actual dispatch costs 5 M-cycles on hardware; the vector's
+         * first instruction executes on the next tick */
+        if(handle_interrupts(fired)) return 5;
+    }
 
     /* Halted: batch 8 M-cycles per iteration. Games spend most of every
      * frame in HALT waiting for vblank; stepping 1 cycle at a time made
@@ -58,6 +62,12 @@ auto CPU::tick() -> Cycles {
 
     u16 opcode_pc = pc.value();
     auto opcode = get_byte_from_pc();
+    if(halt_bug) {
+        /* DMG halt bug: the byte after HALT is fetched without the PC
+         * advancing, so it is executed twice (or becomes its own operand) */
+        pc.set(opcode_pc);
+        halt_bug = false;
+    }
     auto cycles = execute_opcode(opcode, opcode_pc);
 
     if(ei_was_pending && ime_pending) {
@@ -79,34 +89,23 @@ auto CPU::execute_opcode(const u8 opcode, u16 opcode_pc) -> Cycles {
     return execute_normal_opcode(opcode, opcode_pc);
 }
 
-void CPU::handle_interrupts(u8 fired_interrupts) {
+auto CPU::handle_interrupts(u8 fired_interrupts) -> bool {
     if (halted) {
-        // TODO: Handle halt bug
         halted = false;
     }
 
     if (!interrupts_enabled) {
-        return;
+        return false;
     }
 
     stack_push(pc);
 
-    bool handled_interrupt = false;
-
-    handled_interrupt = handle_interrupt(0, interrupts::vblank, fired_interrupts);
-    if (handled_interrupt) { return; }
-
-    handled_interrupt = handle_interrupt(1, interrupts::lcdc_status, fired_interrupts);
-    if (handled_interrupt) { return; }
-
-    handled_interrupt = handle_interrupt(2, interrupts::timer, fired_interrupts);
-    if (handled_interrupt) { return; }
-
-    handled_interrupt = handle_interrupt(3, interrupts::serial, fired_interrupts);
-    if (handled_interrupt) { return; }
-
-    handled_interrupt = handle_interrupt(4, interrupts::joypad, fired_interrupts);
-    if (handled_interrupt) { return; }
+    if (handle_interrupt(0, interrupts::vblank, fired_interrupts)) return true;
+    if (handle_interrupt(1, interrupts::lcdc_status, fired_interrupts)) return true;
+    if (handle_interrupt(2, interrupts::timer, fired_interrupts)) return true;
+    if (handle_interrupt(3, interrupts::serial, fired_interrupts)) return true;
+    if (handle_interrupt(4, interrupts::joypad, fired_interrupts)) return true;
+    return false; /* unreachable: fired is masked non-zero */
 }
 
 auto CPU::handle_interrupt(u8 interrupt_bit, u16 interrupt_vector, u8 fired_interrupts) -> bool {
@@ -117,6 +116,14 @@ auto CPU::handle_interrupt(u8 interrupt_bit, u16 interrupt_vector, u8 fired_inte
     interrupt_flag.set_bit_to(interrupt_bit, false);
     pc.set(interrupt_vector);
     interrupts_enabled = false;
+    /* belt and braces: a dispatch must never carry the halt-bug PC-repeat
+     * into the handler's first instruction */
+    halt_bug = false;
+    /* A pending EI (redundant EI executed right before the dispatch) must
+     * die here: without this, IME was re-enabled one instruction INTO the
+     * interrupt handler, allowing unintended nested interrupts to corrupt
+     * non-reentrant handlers -- games wedged after a few button presses. */
+    ime_pending = false;
     return true;
 }
 

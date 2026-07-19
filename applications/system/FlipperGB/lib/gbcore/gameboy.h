@@ -46,6 +46,7 @@ public:
             video.tick(Cycles(n));
             timer.tick(n);
             apu.tick(n);
+            mmu.serial_tick(n);
         }
     }
 
@@ -155,14 +156,12 @@ inline void Timer::tick(uint cycles) {
         div_clocks &= 63;
     }
 
-    /* Accumulate T-cycles only while the timer is enabled: accumulating
-     * with TAC off built up an unbounded backlog that, when a game later
-     * enabled the timer, drained as a burst of TIMA overflows + spurious
-     * timer interrupts (plus a long stall in the loop below). */
-    if(!timer_control.check_bit(2)) {
-        clocks = 0;
-        return;
-    }
+    /* Accumulate T-cycles only while the timer is enabled (accumulating
+     * with TAC off built an unbounded backlog that drained as a burst of
+     * spurious overflows when the timer was enabled). The sub-period
+     * remainder is kept across TAC toggles, matching hardware phase
+     * behaviour more closely. */
+    if(!timer_control.check_bit(2)) return;
     clocks += cycles * 4; /* M-cycles -> T-cycles */
 
     uint clock_limit = clocks_needed_to_increment();
@@ -179,6 +178,19 @@ inline void Timer::tick(uint cycles) {
             timer_counter.set(timer_modulo.value());
         }
     }
+}
+
+inline void MMU::serial_tick(uint cycles) {
+    if(!serial_clocks) return;
+    if(serial_clocks > cycles) {
+        serial_clocks -= cycles;
+        return;
+    }
+    /* transfer complete: no link partner, the line reads all 1s */
+    serial_clocks = 0;
+    serial_data = 0xFF;
+    serial_control &= 0x7F; /* clear the busy bit */
+    gb.cpu.interrupt_flag.set_bit_to(3, true);
 }
 
 inline auto CPU::get_byte_from_pc() -> u8 {

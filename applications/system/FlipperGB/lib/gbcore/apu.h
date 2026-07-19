@@ -44,6 +44,73 @@ public:
     /* n: 0 = pulse 1, 1 = pulse 2, 2 = wave, 3 = noise */
     void get_voice(uint n, ApuVoice* out) const;
 
+    /* save-state support: exact raw state (masked IO reads lose
+     * write-only bits like the frequency-low registers) */
+    struct State {
+        u8 regs[20]; /* ch[4] x nr0..nr4 */
+        u8 nr50, nr51, power;
+        u8 wave[16];
+        u8 enabled_mask;
+        u8 env_vol[4], env_tim[4];
+        u16 length[4];
+        u32 order[4];
+        u32 sweep_shadow;
+        u8 sweep_timer, sweep_en;
+        u32 seq_counter;
+        u8 seq_step;
+        u32 trig_counter;
+    };
+    void export_state(State* s) const {
+        for(uint n = 0; n < 4; n++) {
+            s->regs[n * 5 + 0] = ch[n].nr0;
+            s->regs[n * 5 + 1] = ch[n].nr1;
+            s->regs[n * 5 + 2] = ch[n].nr2;
+            s->regs[n * 5 + 3] = ch[n].nr3;
+            s->regs[n * 5 + 4] = ch[n].nr4;
+            s->env_vol[n] = ch[n].env_volume;
+            s->env_tim[n] = ch[n].env_timer;
+            s->length[n] = (u16)ch[n].length;
+            s->order[n] = ch[n].order;
+            if(ch[n].enabled) s->enabled_mask |= (u8)(1 << n);
+        }
+        s->nr50 = nr50;
+        s->nr51 = nr51;
+        s->power = power;
+        for(uint i = 0; i < 16; i++)
+            s->wave[i] = wave_ram[i];
+        s->sweep_shadow = sweep_shadow;
+        s->sweep_timer = sweep_timer;
+        s->sweep_en = sweep_enabled;
+        s->seq_counter = seq_counter;
+        s->seq_step = seq_step;
+        s->trig_counter = trigger_counter;
+    }
+    void import_state(const State* s) {
+        for(uint n = 0; n < 4; n++) {
+            ch[n].nr0 = s->regs[n * 5 + 0];
+            ch[n].nr1 = s->regs[n * 5 + 1];
+            ch[n].nr2 = s->regs[n * 5 + 2];
+            ch[n].nr3 = s->regs[n * 5 + 3];
+            ch[n].nr4 = s->regs[n * 5 + 4];
+            ch[n].env_volume = s->env_vol[n];
+            ch[n].env_timer = s->env_tim[n];
+            ch[n].length = s->length[n];
+            ch[n].order = s->order[n];
+            ch[n].enabled = (s->enabled_mask >> n) & 1;
+        }
+        nr50 = s->nr50;
+        nr51 = s->nr51;
+        power = s->power != 0;
+        for(uint i = 0; i < 16; i++)
+            wave_ram[i] = s->wave[i];
+        sweep_shadow = s->sweep_shadow;
+        sweep_timer = s->sweep_timer;
+        sweep_enabled = s->sweep_en != 0;
+        seq_counter = s->seq_counter;
+        seq_step = s->seq_step;
+        trigger_counter = s->trig_counter;
+    }
+
     /* Master volume 0..7 (louder of the two NR50 output terminals) */
     auto master_volume() const -> u8 {
         u8 l = (nr50 >> 4) & 7;
